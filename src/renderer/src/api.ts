@@ -1,0 +1,28 @@
+import type {
+  AppErrorPayload,
+  AppState,
+  ApplyPresetResult,
+  CreatePresetInput,
+  UpdatePresetInput
+} from "../../shared/types";
+
+export type ReschangerApi = {
+  getState: () => Promise<AppState>;
+  refreshMonitors: () => Promise<AppState>;
+  createPreset: (input: CreatePresetInput) => Promise<AppState>;
+  updatePreset: (id: string, input: UpdatePresetInput) => Promise<AppState>;
+  deletePreset: (id: string) => Promise<AppState>;
+  applyPreset: (id: string) => Promise<AppState>;
+  setAutostart: (enabled: boolean) => Promise<AppState>;
+  onStateChanged: (callback: (state: AppState) => void) => () => void;
+  onPresetApplied: (callback: (result: ApplyPresetResult) => void) => () => void;
+  onAppError: (callback: (error: AppErrorPayload) => void) => () => void;
+};
+
+declare global {
+  interface Window {
+    reschanger: ReschangerApi;
+  }
+}
+
+export const api = window.reschanger;
