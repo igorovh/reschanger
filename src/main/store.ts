@@ -1,7 +1,14 @@
-import { app } from "electron";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { DEFAULT_LOCALE, isLocale, type Locale } from "../shared/i18n";
+import { app } from "electron";
+import {
+  DEFAULT_LOCALE,
+  DEFAULT_THEME_MODE,
+  isLocale,
+  isThemeMode,
+  type Locale,
+  type ThemeMode,
+} from "../shared/i18n";
 import type { AppSettings, Preset } from "../shared/types";
 
 const SETTINGS_VERSION = 1;
@@ -10,7 +17,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   version: SETTINGS_VERSION,
   autostart: false,
   language: DEFAULT_LOCALE,
-  presets: []
+  themeMode: DEFAULT_THEME_MODE,
+  presets: [],
 };
 
 export class SettingsStore {
@@ -52,7 +60,7 @@ export class SettingsStore {
   async setAutostart(enabled: boolean): Promise<AppSettings> {
     this.settings = {
       ...this.settings,
-      autostart: enabled
+      autostart: enabled,
     };
     await this.save();
     return this.getSettings();
@@ -61,7 +69,16 @@ export class SettingsStore {
   async setLanguage(language: Locale): Promise<AppSettings> {
     this.settings = {
       ...this.settings,
-      language
+      language,
+    };
+    await this.save();
+    return this.getSettings();
+  }
+
+  async setThemeMode(themeMode: ThemeMode): Promise<AppSettings> {
+    this.settings = {
+      ...this.settings,
+      themeMode,
     };
     await this.save();
     return this.getSettings();
@@ -70,7 +87,7 @@ export class SettingsStore {
   async setPresets(presets: Preset[]): Promise<AppSettings> {
     this.settings = {
       ...this.settings,
-      presets
+      presets,
     };
     await this.save();
     return this.getSettings();
@@ -79,7 +96,11 @@ export class SettingsStore {
   async save(): Promise<void> {
     await mkdir(dirname(this.filePath), { recursive: true });
     const temporaryPath = `${this.filePath}.tmp`;
-    await writeFile(temporaryPath, `${JSON.stringify(this.settings, null, 2)}\n`, "utf8");
+    await writeFile(
+      temporaryPath,
+      `${JSON.stringify(this.settings, null, 2)}\n`,
+      "utf8",
+    );
     await rename(temporaryPath, this.filePath);
   }
 
@@ -101,7 +122,10 @@ function normalizeSettings(value: unknown): AppSettings {
     version: SETTINGS_VERSION,
     autostart: typeof value.autostart === "boolean" ? value.autostart : false,
     language: isLocale(value.language) ? value.language : DEFAULT_LOCALE,
-    presets: Array.isArray(value.presets) ? value.presets.filter(isPreset) : []
+    themeMode: isThemeMode(value.themeMode)
+      ? value.themeMode
+      : DEFAULT_THEME_MODE,
+    presets: Array.isArray(value.presets) ? value.presets.filter(isPreset) : [],
   };
 }
 

@@ -1,3 +1,4 @@
+export type { Locale, ThemeMode, TranslationKey } from "../../shared/i18n";
 export type {
   AppErrorPayload,
   ApplyPresetResult,
@@ -7,7 +8,5 @@ export type {
   DisplayMode,
   MonitorInfo,
   Preset,
-  UpdatePresetInput
+  UpdatePresetInput,
 } from "../../shared/types";
-
-export type { Locale, TranslationKey } from "../../shared/i18n";

@@ -1,4 +1,4 @@
-import type { Locale } from "./i18n";
+import type { Locale, ThemeMode } from "./i18n";
 
 export type DisplayMode = {
   width: number;
@@ -30,6 +30,7 @@ export type AppSettings = {
   version: 1;
   autostart: boolean;
   language: Locale;
+  themeMode: ThemeMode;
   presets: Preset[];
 };
 

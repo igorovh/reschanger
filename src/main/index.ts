@@ -1,19 +1,25 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { applyDisplayMode, listMonitors } from "./display/windowsDisplay";
-import { SettingsStore } from "./store";
-import { attachWindowHideToTray, TrayController } from "./tray";
-import { isLocale, t, type Locale } from "../shared/i18n";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import {
+  isLocale,
+  isThemeMode,
+  type Locale,
+  type ThemeMode,
+  t,
+} from "../shared/i18n";
 import type {
   AppErrorPayload,
-  AppState,
   ApplyPresetResult,
+  AppState,
   CreatePresetInput,
   MonitorInfo,
   Preset,
-  UpdatePresetInput
+  UpdatePresetInput,
 } from "../shared/types";
+import { applyDisplayMode, listMonitors } from "./display/windowsDisplay";
+import { SettingsStore } from "./store";
+import { attachWindowHideToTray, TrayController } from "./tray";
 
 let mainWindow: BrowserWindow | null = null;
 let shouldQuit = false;
@@ -42,7 +48,7 @@ if (!singleInstanceLock) {
       showWindow: showMainWindow,
       refreshMonitors: async () => refreshMonitorsInternal(true),
       applyPreset: applyPresetById,
-      quit: quitApp
+      quit: quitApp,
     });
     trayController.create();
 
@@ -79,8 +85,8 @@ function createMainWindow(): void {
       preload: join(__dirname, "../preload/preload.mjs"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
-    }
+      sandbox: false,
+    },
   });
 
   attachWindowHideToTray(mainWindow, () => shouldQuit);
@@ -117,37 +123,44 @@ function registerIpcHandlers(): void {
     return getState();
   });
 
-  ipcMain.handle("presets:update", async (_event, id: string, input: UpdatePresetInput) => {
-    const settings = store.getSettings();
-    const preset = settings.presets.find((item) => item.id === id);
+  ipcMain.handle(
+    "presets:update",
+    async (_event, id: string, input: UpdatePresetInput) => {
+      const settings = store.getSettings();
+      const preset = settings.presets.find((item) => item.id === id);
 
-    if (!preset) {
-      throw new Error(t(currentLocale(), "error.presetUpdateMissing"));
-    }
+      if (!preset) {
+        throw new Error(t(currentLocale(), "error.presetUpdateMissing"));
+      }
 
-    const mergedInput: CreatePresetInput = {
-      name: input.name ?? preset.name,
-      monitorId: input.monitorId ?? preset.monitorId,
-      width: input.width ?? preset.width,
-      height: input.height ?? preset.height,
-      refreshRate: input.refreshRate ?? preset.refreshRate
-    };
+      const mergedInput: CreatePresetInput = {
+        name: input.name ?? preset.name,
+        monitorId: input.monitorId ?? preset.monitorId,
+        width: input.width ?? preset.width,
+        height: input.height ?? preset.height,
+        refreshRate: input.refreshRate ?? preset.refreshRate,
+      };
 
-    const updatedPreset = {
-      ...buildPreset(mergedInput, preset),
-      id: preset.id,
-      createdAt: preset.createdAt
-    };
+      const updatedPreset = {
+        ...buildPreset(mergedInput, preset),
+        id: preset.id,
+        createdAt: preset.createdAt,
+      };
 
-    await store.setPresets(settings.presets.map((item) => (item.id === id ? updatedPreset : item)));
-    broadcastState();
-    trayController.rebuild();
-    return getState();
-  });
+      await store.setPresets(
+        settings.presets.map((item) => (item.id === id ? updatedPreset : item)),
+      );
+      broadcastState();
+      trayController.rebuild();
+      return getState();
+    },
+  );
 
   ipcMain.handle("presets:delete", async (_event, id: string) => {
     const settings = store.getSettings();
-    await store.setPresets(settings.presets.filter((preset) => preset.id !== id));
+    await store.setPresets(
+      settings.presets.filter((preset) => preset.id !== id),
+    );
     broadcastState();
     trayController.rebuild();
     return getState();
@@ -175,21 +188,36 @@ function registerIpcHandlers(): void {
     trayController.rebuild();
     return getState();
   });
+
+  ipcMain.handle("theme:set", async (_event, themeMode: ThemeMode) => {
+    if (!isThemeMode(themeMode)) {
+      throw new Error(t(currentLocale(), "error.unsupportedThemeMode"));
+    }
+
+    await store.setThemeMode(themeMode);
+    broadcastState();
+    return getState();
+  });
 }
 
 function getState(): AppState {
   return {
     settings: store.getSettings(),
-    monitors
+    monitors,
   };
 }
 
-async function refreshMonitorsInternal(shouldNotifyRenderer: boolean): Promise<void> {
+async function refreshMonitorsInternal(
+  shouldNotifyRenderer: boolean,
+): Promise<void> {
   try {
     monitors = await listMonitors(currentLocale());
   } catch (error) {
     monitors = [];
-    const payload = toAppError(t(currentLocale(), "error.refreshMonitorsFailed"), error);
+    const payload = toAppError(
+      t(currentLocale(), "error.refreshMonitorsFailed"),
+      error,
+    );
     sendAppError(payload);
   }
 
@@ -209,10 +237,18 @@ async function applyPresetById(id: string): Promise<void> {
 
   const monitor = monitors.find((item) => item.id === preset.monitorId);
   if (!monitor) {
-    throw new Error(t(currentLocale(), "error.monitorUnavailable", { name: preset.name }));
+    throw new Error(
+      t(currentLocale(), "error.monitorUnavailable", { name: preset.name }),
+    );
   }
 
-  await applyDisplayMode(monitor.deviceName, preset.width, preset.height, preset.refreshRate, currentLocale());
+  await applyDisplayMode(
+    monitor.deviceName,
+    preset.width,
+    preset.height,
+    preset.refreshRate,
+    currentLocale(),
+  );
   await refreshMonitorsInternal(false);
   trayController.rebuild();
   broadcastState();
@@ -222,8 +258,8 @@ async function applyPresetById(id: string): Promise<void> {
     presetName: preset.name,
     message: t(currentLocale(), "message.presetApplied", {
       mode: formatMode(preset.width, preset.height, preset.refreshRate),
-      monitorName: preset.monitorName
-    })
+      monitorName: preset.monitorName,
+    }),
   };
   mainWindow?.webContents.send("preset:applied", result);
 }
@@ -251,11 +287,15 @@ function buildPreset(input: CreatePresetInput, previous?: Preset): Preset {
     height: input.height,
     refreshRate: input.refreshRate,
     createdAt: previous?.createdAt ?? now,
-    updatedAt: now
+    updatedAt: now,
   };
 }
 
-function validateMode(width: number, height: number, refreshRate: number): void {
+function validateMode(
+  width: number,
+  height: number,
+  refreshRate: number,
+): void {
   if (!Number.isInteger(width) || width < 640 || width > 10000) {
     throw new Error(t(currentLocale(), "error.widthInvalid"));
   }
@@ -264,7 +304,11 @@ function validateMode(width: number, height: number, refreshRate: number): void 
     throw new Error(t(currentLocale(), "error.heightInvalid"));
   }
 
-  if (!Number.isInteger(refreshRate) || refreshRate < 30 || refreshRate > 1000) {
+  if (
+    !Number.isInteger(refreshRate) ||
+    refreshRate < 30 ||
+    refreshRate > 1000
+  ) {
     throw new Error(t(currentLocale(), "error.refreshRateInvalid"));
   }
 }
@@ -297,7 +341,7 @@ function setAutostart(enabled: boolean): void {
   app.setLoginItemSettings({
     openAtLogin: enabled,
     path: process.execPath,
-    args
+    args,
   });
 }
 
@@ -309,14 +353,18 @@ function currentLocale(): Locale {
   return store.getSettings().language;
 }
 
-function formatMode(width: number, height: number, refreshRate: number): string {
+function formatMode(
+  width: number,
+  height: number,
+  refreshRate: number,
+): string {
   return `${width}x${height} @ ${refreshRate} Hz`;
 }
 
 function sendAppError(payload: AppErrorPayload): void {
   mainWindow?.webContents.send("app:error", payload);
 
-  if (!mainWindow || !mainWindow.isVisible()) {
+  if (!mainWindow?.isVisible()) {
     void dialog.showErrorBox(payload.title, payload.message);
   }
 }
@@ -324,6 +372,9 @@ function sendAppError(payload: AppErrorPayload): void {
 function toAppError(title: string, error: unknown): AppErrorPayload {
   return {
     title,
-    message: error instanceof Error ? error.message : t(currentLocale(), "error.unknown")
+    message:
+      error instanceof Error
+        ? error.message
+        : t(currentLocale(), "error.unknown"),
   };
 }

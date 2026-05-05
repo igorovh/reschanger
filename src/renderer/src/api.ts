@@ -1,11 +1,11 @@
+import type { Locale, ThemeMode } from "../../shared/i18n";
 import type {
   AppErrorPayload,
   ApplyPresetResult,
   AppState,
   CreatePresetInput,
-  UpdatePresetInput
+  UpdatePresetInput,
 } from "../../shared/types";
-import type { Locale } from "../../shared/i18n";
 
 export type ReschangerApi = {
   getState: () => Promise<AppState>;
@@ -16,9 +16,10 @@ export type ReschangerApi = {
   applyPreset: (id: string) => Promise<AppState>;
   setAutostart: (enabled: boolean) => Promise<AppState>;
   setLanguage: (language: Locale) => Promise<AppState>;
+  setThemeMode: (themeMode: ThemeMode) => Promise<AppState>;
   onStateChanged: (callback: (state: AppState) => void) => () => void;
   onPresetApplied: (
-    callback: (result: ApplyPresetResult) => void
+    callback: (result: ApplyPresetResult) => void,
   ) => () => void;
   onAppError: (callback: (error: AppErrorPayload) => void) => () => void;
 };

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { t, type Locale } from "../../shared/i18n";
+import { type Locale, t } from "../../shared/i18n";
 import type { MonitorInfo } from "./types";
 
 type BridgeListResponse = {
@@ -292,7 +292,10 @@ public static class DisplayBridge
 
 export async function listMonitors(locale: Locale): Promise<MonitorInfo[]> {
   ensureWindows(locale);
-  const response = await runBridge<BridgeListResponse>("[DisplayBridge]::ListJson()", locale);
+  const response = await runBridge<BridgeListResponse>(
+    "[DisplayBridge]::ListJson()",
+    locale,
+  );
 
   if (!response.ok) {
     throw new Error(t(locale, "display.listFailed"));
@@ -306,17 +309,26 @@ export async function applyDisplayMode(
   width: number,
   height: number,
   refreshRate: number,
-  locale: Locale
+  locale: Locale,
 ): Promise<void> {
   ensureWindows(locale);
 
   const response = await runBridge<BridgeApplyResponse>(
     `[DisplayBridge]::ApplyJson('${escapePowerShellSingleQuotedString(deviceName)}', ${width}, ${height}, ${refreshRate})`,
-    locale
+    locale,
   );
 
   if (!response.ok) {
-    throw new Error(toApplyErrorMessage(response, deviceName, width, height, refreshRate, locale));
+    throw new Error(
+      toApplyErrorMessage(
+        response,
+        deviceName,
+        width,
+        height,
+        refreshRate,
+        locale,
+      ),
+    );
   }
 }
 
@@ -334,7 +346,7 @@ async function runBridge<T>(invocation: string, locale: Locale): Promise<T> {
   const script = [
     "$ErrorActionPreference = 'Stop'",
     `Add-Type -TypeDefinition @'\n${WINDOWS_DISPLAY_BRIDGE}\n'@`,
-    invocation
+    invocation,
   ].join("\n\n");
 
   const stdout = await runPowerShell(script, locale);
@@ -353,7 +365,7 @@ function toApplyErrorMessage(
   width: number,
   height: number,
   refreshRate: number,
-  locale: Locale
+  locale: Locale,
 ): string {
   const mode = `${width}x${height} @ ${refreshRate} Hz`;
   const code = response.code ?? "unknown";
@@ -364,19 +376,29 @@ function toApplyErrorMessage(
     case -101:
       return t(locale, "display.readCurrentFailed", { deviceName });
     default:
-      return t(locale, response.error?.includes("odrzucił") ? "display.testRejected" : "display.applyFailed", {
-        code,
-        mode
-      });
+      return t(
+        locale,
+        response.error?.includes("odrzucił")
+          ? "display.testRejected"
+          : "display.applyFailed",
+        {
+          code,
+          mode,
+        },
+      );
   }
 }
 
 function runPowerShell(script: string, locale: Locale): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "-"], {
-      windowsHide: true,
-      stdio: ["pipe", "pipe", "pipe"]
-    });
+    const child = spawn(
+      "powershell.exe",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "-"],
+      {
+        windowsHide: true,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
 
     let stdout = "";
     let stderr = "";
@@ -402,7 +424,12 @@ function runPowerShell(script: string, locale: Locale): Promise<string> {
         return;
       }
 
-      reject(new Error(stderr.trim() || t(locale, "display.powerShellFailed", { code: code ?? "unknown" })));
+      reject(
+        new Error(
+          stderr.trim() ||
+            t(locale, "display.powerShellFailed", { code: code ?? "unknown" }),
+        ),
+      );
     });
 
     child.stdin.end(script);
