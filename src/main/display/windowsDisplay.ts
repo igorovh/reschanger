@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { type Locale, t } from "../../shared/i18n";
+import { formatMode, type Locale, t } from "../../shared/i18n";
 import type { MonitorInfo } from "./types";
 
 type BridgeListResponse = {
@@ -11,6 +11,11 @@ type BridgeListResponse = {
 type BridgeApplyResponse = {
   ok: boolean;
   error?: string;
+  reason?:
+    | "applyFailed"
+    | "missingMonitorId"
+    | "readCurrentFailed"
+    | "testRejected";
   code?: number;
 };
 
@@ -146,13 +151,13 @@ public static class DisplayBridge
     {
         if (String.IsNullOrWhiteSpace(deviceName))
         {
-            return ErrorJson("Brak identyfikatora monitora.", -100);
+            return ErrorJson("Brak identyfikatora monitora.", "missingMonitorId", -100);
         }
 
         DEVMODE mode = CreateDevMode();
         if (!EnumDisplaySettings(deviceName, ENUM_CURRENT_SETTINGS, ref mode))
         {
-            return ErrorJson("Nie można odczytać bieżącego trybu monitora " + deviceName + ".", -101);
+            return ErrorJson("Nie można odczytać bieżącego trybu monitora " + deviceName + ".", "readCurrentFailed", -101);
         }
 
         mode.dmPelsWidth = width;
@@ -163,13 +168,13 @@ public static class DisplayBridge
         int testResult = ChangeDisplaySettingsEx(deviceName, ref mode, IntPtr.Zero, CDS_TEST, IntPtr.Zero);
         if (testResult != DISP_CHANGE_SUCCESSFUL)
         {
-            return ErrorJson("Windows odrzucił test trybu " + width + "x" + height + " @ " + refreshRate + " Hz.", testResult);
+            return ErrorJson("Windows odrzucił test trybu " + width + "x" + height + " @ " + refreshRate + " Hz.", "testRejected", testResult);
         }
 
         int applyResult = ChangeDisplaySettingsEx(deviceName, ref mode, IntPtr.Zero, CDS_UPDATEREGISTRY, IntPtr.Zero);
         if (applyResult != DISP_CHANGE_SUCCESSFUL)
         {
-            return ErrorJson("Nie udało się zastosować trybu " + width + "x" + height + " @ " + refreshRate + " Hz.", applyResult);
+            return ErrorJson("Nie udało się zastosować trybu " + width + "x" + height + " @ " + refreshRate + " Hz.", "applyFailed", applyResult);
         }
 
         return "{\"ok\":true}";
@@ -268,9 +273,9 @@ public static class DisplayBridge
         builder.Append("\"");
     }
 
-    private static string ErrorJson(string message, int code)
+    private static string ErrorJson(string message, string reason, int code)
     {
-        return "{\"ok\":false,\"error\":\"" + JsonEscape(message) + "\",\"code\":" + code + "}";
+        return "{\"ok\":false,\"error\":\"" + JsonEscape(message) + "\",\"reason\":\"" + JsonEscape(reason) + "\",\"code\":" + code + "}";
     }
 
     private static string JsonEscape(string value)
@@ -367,25 +372,18 @@ function toApplyErrorMessage(
   refreshRate: number,
   locale: Locale,
 ): string {
-  const mode = `${width}x${height} @ ${refreshRate} Hz`;
+  const mode = formatMode(width, height, refreshRate);
   const code = response.code ?? "unknown";
 
-  switch (response.code) {
-    case -100:
+  switch (response.reason) {
+    case "missingMonitorId":
       return t(locale, "display.missingMonitorId");
-    case -101:
+    case "readCurrentFailed":
       return t(locale, "display.readCurrentFailed", { deviceName });
+    case "testRejected":
+      return t(locale, "display.testRejected", { code, mode });
     default:
-      return t(
-        locale,
-        response.error?.includes("odrzucił")
-          ? "display.testRejected"
-          : "display.applyFailed",
-        {
-          code,
-          mode,
-        },
-      );
+      return t(locale, "display.applyFailed", { code, mode });
   }
 }
 

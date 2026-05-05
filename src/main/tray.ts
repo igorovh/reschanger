@@ -6,7 +6,7 @@ import {
   nativeImage,
   Tray,
 } from "electron";
-import { type Locale, t } from "../shared/i18n";
+import { formatMode, type Locale, t } from "../shared/i18n";
 import type { AppState } from "../shared/types";
 
 export type TrayControllerOptions = {
@@ -44,7 +44,11 @@ export class TrayController {
     const locale = state.settings.language;
     const monitorIds = new Set(state.monitors.map((monitor) => monitor.id));
     const presetItems = state.settings.presets.map((preset) => ({
-      label: `${preset.name} - ${preset.monitorName} - ${preset.width}x${preset.height} @ ${preset.refreshRate} Hz`,
+      label: t(locale, "preset.trayLabel", {
+        name: preset.name,
+        monitorName: preset.monitorName,
+        mode: formatMode(preset.width, preset.height, preset.refreshRate),
+      }),
       enabled: monitorIds.has(preset.monitorId),
       click: async () => {
         try {

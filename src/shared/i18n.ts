@@ -50,6 +50,7 @@ const TRANSLATIONS = {
     "preset.defaultName": "Opcja {number}",
     "preset.monitorUnavailable": "Monitor niedostępny",
     "preset.savedPresets": "Zapisane presety",
+    "preset.trayLabel": "{name} - {monitorName} - {mode}",
     "settings.open": "Ustawienia",
     "settings.updated": "Zaktualizowano ustawienia.",
     "settings.title": "Ustawienia",
@@ -130,6 +131,7 @@ const TRANSLATIONS = {
     "preset.defaultName": "Option {number}",
     "preset.monitorUnavailable": "Monitor unavailable",
     "preset.savedPresets": "Saved presets",
+    "preset.trayLabel": "{name} - {monitorName} - {mode}",
     "settings.open": "Settings",
     "settings.updated": "Settings updated.",
     "settings.title": "Settings",
@@ -179,6 +181,14 @@ export function isLocale(value: unknown): value is Locale {
 
 export function isThemeMode(value: unknown): value is ThemeMode {
   return typeof value === "string" && THEME_MODES.includes(value as ThemeMode);
+}
+
+export function formatMode(
+  width: number,
+  height: number,
+  refreshRate: number,
+): string {
+  return `${width}x${height} @ ${refreshRate} Hz`;
 }
 
 export function t(

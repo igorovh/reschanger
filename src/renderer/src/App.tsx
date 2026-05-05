@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   DEFAULT_LOCALE,
   DEFAULT_THEME_MODE,
+  formatMode,
   LOCALES,
   THEME_MODES,
   t,
@@ -84,7 +85,7 @@ export function App(): React.JSX.Element {
         setNotice(t(nextState.settings.language, "notice.ready"));
       })
       .catch((loadError: unknown) => {
-        setError(toMessage(loadError, locale));
+        setError(toMessage(loadError, DEFAULT_LOCALE));
       });
 
     const unsubscribeState = api.onStateChanged((nextState) => {
@@ -106,7 +107,7 @@ export function App(): React.JSX.Element {
       unsubscribeApplied();
       unsubscribeError();
     };
-  }, [locale]);
+  }, []);
 
   useEffect(() => {
     if (state.monitors.length === 0) {
@@ -823,14 +824,6 @@ function createPreviewPreset(
     createdAt: now,
     updatedAt: now,
   };
-}
-
-function formatMode(
-  width: number,
-  height: number,
-  refreshRate: number,
-): string {
-  return `${width}x${height} @ ${refreshRate} Hz`;
 }
 
 function toMessage(error: unknown, locale: Locale): string {

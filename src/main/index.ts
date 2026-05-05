@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import {
+  formatMode,
   isLocale,
   isThemeMode,
   type Locale,
@@ -351,14 +352,6 @@ function broadcastState(): void {
 
 function currentLocale(): Locale {
   return store.getSettings().language;
-}
-
-function formatMode(
-  width: number,
-  height: number,
-  refreshRate: number,
-): string {
-  return `${width}x${height} @ ${refreshRate} Hz`;
 }
 
 function sendAppError(payload: AppErrorPayload): void {
