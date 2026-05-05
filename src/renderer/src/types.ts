@@ -1,8 +1,8 @@
 export type {
   AppErrorPayload,
+  ApplyPresetResult,
   AppSettings,
   AppState,
-  ApplyPresetResult,
   CreatePresetInput,
   DisplayMode,
   MonitorInfo,

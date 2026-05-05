@@ -17,9 +17,5 @@
     "noImplicitOverride": true,
     "types": ["node", "electron", "bun"]
   },
-  "include": [
-    "electron.vite.config.ts",
-    "src/**/*.ts",
-    "src/**/*.tsx"
-  ]
+  "include": ["electron.vite.config.ts", "src/**/*.ts", "src/**/*.tsx"]
 }
