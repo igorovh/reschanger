@@ -94,7 +94,9 @@ export function App(): React.JSX.Element {
       return;
     }
 
-    const currentMonitor = state.monitors.find((monitor) => monitor.id === form.monitorId);
+    const currentMonitor = state.monitors.find(
+      (monitor) => monitor.id === form.monitorId
+    );
     if (currentMonitor) {
       return;
     }
@@ -104,15 +106,24 @@ export function App(): React.JSX.Element {
       return;
     }
 
-    setForm((current) => createFormForMonitor(firstMonitor, current.name || nextPresetName(state.settings.presets)));
+    setForm((current) =>
+      createFormForMonitor(
+        firstMonitor,
+        current.name || nextPresetName(state.settings.presets)
+      )
+    );
   }, [form.monitorId, state.monitors, state.settings.presets]);
 
   const selectedMonitor = useMemo(
-    () => state.monitors.find((monitor) => monitor.id === form.monitorId) ?? null,
+    () =>
+      state.monitors.find((monitor) => monitor.id === form.monitorId) ?? null,
     [form.monitorId, state.monitors]
   );
 
-  const resolutionOptions = useMemo(() => getResolutionOptions(selectedMonitor), [selectedMonitor]);
+  const resolutionOptions = useMemo(
+    () => getResolutionOptions(selectedMonitor),
+    [selectedMonitor]
+  );
 
   const refreshOptions = useMemo(
     () => getRefreshOptions(selectedMonitor, form.resolution),
@@ -120,7 +131,10 @@ export function App(): React.JSX.Element {
   );
 
   useEffect(() => {
-    if (refreshOptions.length === 0 || refreshOptions.includes(form.refreshRate)) {
+    if (
+      refreshOptions.length === 0 ||
+      refreshOptions.includes(form.refreshRate)
+    ) {
       return;
     }
 
@@ -141,7 +155,11 @@ export function App(): React.JSX.Element {
         refreshRate: form.refreshRate
       };
 
-  const canSave = selectedMonitor !== null && form.name.trim().length > 0 && selectedMode.width > 0 && selectedMode.height > 0;
+  const canSave =
+    selectedMonitor !== null &&
+    form.name.trim().length > 0 &&
+    selectedMode.width > 0 &&
+    selectedMode.height > 0;
 
   async function refreshMonitors(): Promise<void> {
     await runAction("Odświeżono monitory.", () => api.refreshMonitors());
@@ -162,7 +180,9 @@ export function App(): React.JSX.Element {
     };
 
     if (editingPresetId) {
-      await runAction("Zapisano zmiany presetu.", () => api.updatePreset(editingPresetId, payload));
+      await runAction("Zapisano zmiany presetu.", () =>
+        api.updatePreset(editingPresetId, payload)
+      );
       cancelEdit();
       return;
     }
@@ -170,26 +190,39 @@ export function App(): React.JSX.Element {
     await runAction("Zapisano preset.", () => api.createPreset(payload));
     setForm((current) => ({
       ...current,
-      name: nextPresetName([...state.settings.presets, createPreviewPreset(payload, selectedMonitor)])
+      name: nextPresetName([
+        ...state.settings.presets,
+        createPreviewPreset(payload, selectedMonitor)
+      ])
     }));
   }
 
   async function applyPreset(preset: Preset): Promise<void> {
-    await runAction(`Zastosowano preset "${preset.name}".`, () => api.applyPreset(preset.id));
+    await runAction(`Zastosowano preset "${preset.name}".`, () =>
+      api.applyPreset(preset.id)
+    );
   }
 
   async function deletePreset(preset: Preset): Promise<void> {
-    await runAction(`Usunięto preset "${preset.name}".`, () => api.deletePreset(preset.id));
+    await runAction(`Usunięto preset "${preset.name}".`, () =>
+      api.deletePreset(preset.id)
+    );
     if (editingPresetId === preset.id) {
       cancelEdit();
     }
   }
 
   async function setAutostart(enabled: boolean): Promise<void> {
-    await runAction(enabled ? "Włączono autostart." : "Wyłączono autostart.", () => api.setAutostart(enabled));
+    await runAction(
+      enabled ? "Włączono autostart." : "Wyłączono autostart.",
+      () => api.setAutostart(enabled)
+    );
   }
 
-  async function runAction(successMessage: string, action: () => Promise<AppState>): Promise<void> {
+  async function runAction(
+    successMessage: string,
+    action: () => Promise<AppState>
+  ): Promise<void> {
     setBusy(true);
     setError(null);
 
@@ -213,7 +246,10 @@ export function App(): React.JSX.Element {
       resolution: `${preset.width}x${preset.height}`,
       refreshRate: preset.refreshRate,
       manualMode: !monitor?.modes.some(
-        (mode) => mode.width === preset.width && mode.height === preset.height && mode.refreshRate === preset.refreshRate
+        (mode) =>
+          mode.width === preset.width &&
+          mode.height === preset.height &&
+          mode.refreshRate === preset.refreshRate
       ),
       manualWidth: preset.width,
       manualHeight: preset.height,
@@ -222,10 +258,15 @@ export function App(): React.JSX.Element {
   }
 
   function cancelEdit(): void {
-    const monitor = state.monitors.find((item) => item.id === form.monitorId) ?? state.monitors[0] ?? null;
+    const monitor =
+      state.monitors.find((item) => item.id === form.monitorId) ??
+      state.monitors[0] ??
+      null;
     setEditingPresetId(null);
     if (monitor) {
-      setForm(createFormForMonitor(monitor, nextPresetName(state.settings.presets)));
+      setForm(
+        createFormForMonitor(monitor, nextPresetName(state.settings.presets))
+      );
     } else {
       setForm({
         ...initialForm,
@@ -239,9 +280,17 @@ export function App(): React.JSX.Element {
       <header className="topbar">
         <div>
           <h1>reschanger</h1>
-          <p>Szybka zmiana rozdzielczości i odświeżania z zasobnika systemowego.</p>
+          <p>
+            Szybka zmiana rozdzielczości i odświeżania z zasobnika systemowego.
+          </p>
         </div>
-        <button className="icon-button" type="button" onClick={() => void refreshMonitors()} disabled={busy} title="Odśwież monitory">
+        <button
+          className="icon-button"
+          type="button"
+          onClick={() => void refreshMonitors()}
+          disabled={busy}
+          title="Odśwież monitory"
+        >
           <RefreshCw size={18} />
         </button>
       </header>
@@ -282,7 +331,9 @@ export function App(): React.JSX.Element {
             <input
               id="preset-name"
               value={form.name}
-              onChange={(event) => setForm({ ...form, name: event.currentTarget.value })}
+              onChange={(event) =>
+                setForm({ ...form, name: event.currentTarget.value })
+              }
               placeholder="Opcja 1"
             />
           </div>
@@ -293,13 +344,17 @@ export function App(): React.JSX.Element {
               id="monitor"
               value={form.monitorId}
               onChange={(event) => {
-                const monitor = state.monitors.find((item) => item.id === event.currentTarget.value);
+                const monitor = state.monitors.find(
+                  (item) => item.id === event.currentTarget.value
+                );
                 if (monitor) {
                   setForm(createFormForMonitor(monitor, form.name));
                 }
               }}
             >
-              {state.monitors.length === 0 ? <option value="">Brak wykrytych monitorów</option> : null}
+              {state.monitors.length === 0 ? (
+                <option value="">Brak wykrytych monitorów</option>
+              ) : null}
               {state.monitors.map((monitor) => (
                 <option key={monitor.id} value={monitor.id}>
                   {monitor.name} ({monitor.deviceName})
@@ -310,7 +365,9 @@ export function App(): React.JSX.Element {
 
           {selectedMonitor ? (
             <div className="current-mode">
-              Aktualnie: {selectedMonitor.current.width}x{selectedMonitor.current.height} @ {selectedMonitor.current.refreshRate} Hz
+              Aktualnie: {selectedMonitor.current.width}x
+              {selectedMonitor.current.height} @{" "}
+              {selectedMonitor.current.refreshRate} Hz
             </div>
           ) : null}
 
@@ -318,7 +375,9 @@ export function App(): React.JSX.Element {
             <input
               type="checkbox"
               checked={form.manualMode}
-              onChange={(event) => setForm({ ...form, manualMode: event.currentTarget.checked })}
+              onChange={(event) =>
+                setForm({ ...form, manualMode: event.currentTarget.checked })
+              }
             />
             <span>Wpisz tryb ręcznie</span>
           </label>
@@ -333,7 +392,12 @@ export function App(): React.JSX.Element {
                   min={640}
                   max={10000}
                   value={form.manualWidth}
-                  onChange={(event) => setForm({ ...form, manualWidth: Number(event.currentTarget.value) })}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      manualWidth: Number(event.currentTarget.value)
+                    })
+                  }
                 />
               </div>
               <div className="field">
@@ -344,7 +408,12 @@ export function App(): React.JSX.Element {
                   min={480}
                   max={10000}
                   value={form.manualHeight}
-                  onChange={(event) => setForm({ ...form, manualHeight: Number(event.currentTarget.value) })}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      manualHeight: Number(event.currentTarget.value)
+                    })
+                  }
                 />
               </div>
               <div className="field">
@@ -355,7 +424,12 @@ export function App(): React.JSX.Element {
                   min={30}
                   max={1000}
                   value={form.manualRefreshRate}
-                  onChange={(event) => setForm({ ...form, manualRefreshRate: Number(event.currentTarget.value) })}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      manualRefreshRate: Number(event.currentTarget.value)
+                    })
+                  }
                 />
               </div>
             </div>
@@ -366,7 +440,9 @@ export function App(): React.JSX.Element {
                 <select
                   id="resolution"
                   value={form.resolution}
-                  onChange={(event) => setForm({ ...form, resolution: event.currentTarget.value })}
+                  onChange={(event) =>
+                    setForm({ ...form, resolution: event.currentTarget.value })
+                  }
                 >
                   {resolutionOptions.map((resolution) => (
                     <option key={resolution} value={resolution}>
@@ -380,7 +456,12 @@ export function App(): React.JSX.Element {
                 <select
                   id="refresh-rate"
                   value={form.refreshRate}
-                  onChange={(event) => setForm({ ...form, refreshRate: Number(event.currentTarget.value) })}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      refreshRate: Number(event.currentTarget.value)
+                    })
+                  }
                 >
                   {refreshOptions.map((refreshRate) => (
                     <option key={refreshRate} value={refreshRate}>
@@ -393,12 +474,22 @@ export function App(): React.JSX.Element {
           )}
 
           <div className="actions">
-            <button className="primary-button" type="button" onClick={() => void savePreset()} disabled={!canSave || busy}>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => void savePreset()}
+              disabled={!canSave || busy}
+            >
               {editingPresetId ? <Save size={18} /> : <Plus size={18} />}
               <span>{editingPresetId ? "Zapisz zmiany" : "Dodaj preset"}</span>
             </button>
             {editingPresetId ? (
-              <button className="secondary-button" type="button" onClick={cancelEdit} disabled={busy}>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={cancelEdit}
+                disabled={busy}
+              >
                 <X size={18} />
                 <span>Anuluj</span>
               </button>
@@ -417,16 +508,21 @@ export function App(): React.JSX.Element {
               <div className="empty-state">Brak zapisanych presetów.</div>
             ) : (
               state.settings.presets.map((preset) => {
-                const isMonitorAvailable = state.monitors.some((monitor) => monitor.id === preset.monitorId);
+                const isMonitorAvailable = state.monitors.some(
+                  (monitor) => monitor.id === preset.monitorId
+                );
 
                 return (
                   <article className="preset-item" key={preset.id}>
                     <div className="preset-main">
                       <strong>{preset.name}</strong>
                       <span>
-                        {preset.monitorName} · {preset.width}x{preset.height} @ {preset.refreshRate} Hz
+                        {preset.monitorName} · {preset.width}x{preset.height} @{" "}
+                        {preset.refreshRate} Hz
                       </span>
-                      {!isMonitorAvailable ? <em>Monitor niedostępny</em> : null}
+                      {!isMonitorAvailable ? (
+                        <em>Monitor niedostępny</em>
+                      ) : null}
                     </div>
                     <div className="preset-actions">
                       <button
@@ -438,7 +534,13 @@ export function App(): React.JSX.Element {
                       >
                         <Play size={17} />
                       </button>
-                      <button className="icon-button" type="button" title="Edytuj" onClick={() => editPreset(preset)} disabled={busy}>
+                      <button
+                        className="icon-button"
+                        type="button"
+                        title="Edytuj"
+                        onClick={() => editPreset(preset)}
+                        disabled={busy}
+                      >
                         <Pencil size={17} />
                       </button>
                       <button
@@ -474,7 +576,9 @@ function createFormForMonitor(monitor: MonitorInfo, name: string): FormState {
   return {
     name,
     monitorId: monitor.id,
-    resolution: modeExists ? currentResolution : getResolutionOptions(monitor)[0] ?? currentResolution,
+    resolution: modeExists
+      ? currentResolution
+      : (getResolutionOptions(monitor)[0] ?? currentResolution),
     refreshRate: monitor.current.refreshRate,
     manualMode: false,
     manualWidth: monitor.current.width,
@@ -488,10 +592,15 @@ function getResolutionOptions(monitor: MonitorInfo | null): string[] {
     return [];
   }
 
-  return Array.from(new Set(monitor.modes.map((mode) => `${mode.width}x${mode.height}`)));
+  return Array.from(
+    new Set(monitor.modes.map((mode) => `${mode.width}x${mode.height}`))
+  );
 }
 
-function getRefreshOptions(monitor: MonitorInfo | null, resolution: string): number[] {
+function getRefreshOptions(
+  monitor: MonitorInfo | null,
+  resolution: string
+): number[] {
   if (!monitor) {
     return [];
   }
@@ -503,7 +612,10 @@ function getRefreshOptions(monitor: MonitorInfo | null, resolution: string): num
     .sort((left, right) => right - left);
 }
 
-function parseResolution(resolution: string): { width: number; height: number } {
+function parseResolution(resolution: string): {
+  width: number;
+  height: number;
+} {
   const [width = "0", height = "0"] = resolution.split("x");
   return {
     width: Number(width),
@@ -516,7 +628,13 @@ function nextPresetName(presets: Preset[]): string {
 }
 
 function createPreviewPreset(
-  input: { name: string; monitorId: string; width: number; height: number; refreshRate: number },
+  input: {
+    name: string;
+    monitorId: string;
+    width: number;
+    height: number;
+    refreshRate: number;
+  },
   monitor: MonitorInfo
 ): Preset {
   const now = new Date().toISOString();

@@ -291,7 +291,9 @@ public static class DisplayBridge
 
 export async function listMonitors(): Promise<MonitorInfo[]> {
   ensureWindows();
-  const response = await runBridge<BridgeListResponse>("[DisplayBridge]::ListJson()");
+  const response = await runBridge<BridgeListResponse>(
+    "[DisplayBridge]::ListJson()"
+  );
 
   if (!response.ok) {
     throw new Error(response.error ?? "Nie udało się pobrać listy monitorów.");
@@ -313,13 +315,18 @@ export async function applyDisplayMode(
   );
 
   if (!response.ok) {
-    throw new Error(response.error ?? `Nie udało się zastosować trybu. Kod Windows: ${response.code ?? "unknown"}`);
+    throw new Error(
+      response.error ??
+        `Nie udało się zastosować trybu. Kod Windows: ${response.code ?? "unknown"}`
+    );
   }
 }
 
 function ensureWindows(): void {
   if (process.platform !== "win32") {
-    throw new Error("Zmiana rozdzielczości jest obsługiwana tylko w systemie Windows.");
+    throw new Error(
+      "Zmiana rozdzielczości jest obsługiwana tylko w systemie Windows."
+    );
   }
 }
 
@@ -346,10 +353,14 @@ async function runBridge<T>(invocation: string): Promise<T> {
 
 function runPowerShell(script: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "-"], {
-      windowsHide: true,
-      stdio: ["pipe", "pipe", "pipe"]
-    });
+    const child = spawn(
+      "powershell.exe",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "-"],
+      {
+        windowsHide: true,
+        stdio: ["pipe", "pipe", "pipe"]
+      }
+    );
 
     let stdout = "";
     let stderr = "";
@@ -375,7 +386,11 @@ function runPowerShell(script: string): Promise<string> {
         return;
       }
 
-      reject(new Error(stderr.trim() || `PowerShell zakończył pracę z kodem ${code}.`));
+      reject(
+        new Error(
+          stderr.trim() || `PowerShell zakończył pracę z kodem ${code}.`
+        )
+      );
     });
 
     child.stdin.end(script);

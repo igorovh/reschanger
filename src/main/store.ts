@@ -1,6 +1,6 @@
-import { app } from "electron";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { app } from "electron";
 import type { AppSettings, Preset } from "../shared/types";
 
 const SETTINGS_VERSION = 1;
@@ -68,7 +68,11 @@ export class SettingsStore {
   async save(): Promise<void> {
     await mkdir(dirname(this.filePath), { recursive: true });
     const temporaryPath = `${this.filePath}.tmp`;
-    await writeFile(temporaryPath, `${JSON.stringify(this.settings, null, 2)}\n`, "utf8");
+    await writeFile(
+      temporaryPath,
+      `${JSON.stringify(this.settings, null, 2)}\n`,
+      "utf8"
+    );
     await rename(temporaryPath, this.filePath);
   }
 

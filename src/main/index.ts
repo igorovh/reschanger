@@ -1,18 +1,18 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { applyDisplayMode, listMonitors } from "./display/windowsDisplay";
-import { SettingsStore } from "./store";
-import { attachWindowHideToTray, TrayController } from "./tray";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type {
   AppErrorPayload,
-  AppState,
   ApplyPresetResult,
+  AppState,
   CreatePresetInput,
   MonitorInfo,
   Preset,
   UpdatePresetInput
 } from "../shared/types";
+import { applyDisplayMode, listMonitors } from "./display/windowsDisplay";
+import { SettingsStore } from "./store";
+import { attachWindowHideToTray, TrayController } from "./tray";
 
 let mainWindow: BrowserWindow | null = null;
 let shouldQuit = false;
@@ -116,37 +116,44 @@ function registerIpcHandlers(): void {
     return getState();
   });
 
-  ipcMain.handle("presets:update", async (_event, id: string, input: UpdatePresetInput) => {
-    const settings = store.getSettings();
-    const preset = settings.presets.find((item) => item.id === id);
+  ipcMain.handle(
+    "presets:update",
+    async (_event, id: string, input: UpdatePresetInput) => {
+      const settings = store.getSettings();
+      const preset = settings.presets.find((item) => item.id === id);
 
-    if (!preset) {
-      throw new Error("Nie znaleziono presetu do aktualizacji.");
+      if (!preset) {
+        throw new Error("Nie znaleziono presetu do aktualizacji.");
+      }
+
+      const mergedInput: CreatePresetInput = {
+        name: input.name ?? preset.name,
+        monitorId: input.monitorId ?? preset.monitorId,
+        width: input.width ?? preset.width,
+        height: input.height ?? preset.height,
+        refreshRate: input.refreshRate ?? preset.refreshRate
+      };
+
+      const updatedPreset = {
+        ...buildPreset(mergedInput, preset),
+        id: preset.id,
+        createdAt: preset.createdAt
+      };
+
+      await store.setPresets(
+        settings.presets.map((item) => (item.id === id ? updatedPreset : item))
+      );
+      broadcastState();
+      trayController.rebuild();
+      return getState();
     }
-
-    const mergedInput: CreatePresetInput = {
-      name: input.name ?? preset.name,
-      monitorId: input.monitorId ?? preset.monitorId,
-      width: input.width ?? preset.width,
-      height: input.height ?? preset.height,
-      refreshRate: input.refreshRate ?? preset.refreshRate
-    };
-
-    const updatedPreset = {
-      ...buildPreset(mergedInput, preset),
-      id: preset.id,
-      createdAt: preset.createdAt
-    };
-
-    await store.setPresets(settings.presets.map((item) => (item.id === id ? updatedPreset : item)));
-    broadcastState();
-    trayController.rebuild();
-    return getState();
-  });
+  );
 
   ipcMain.handle("presets:delete", async (_event, id: string) => {
     const settings = store.getSettings();
-    await store.setPresets(settings.presets.filter((preset) => preset.id !== id));
+    await store.setPresets(
+      settings.presets.filter((preset) => preset.id !== id)
+    );
     broadcastState();
     trayController.rebuild();
     return getState();
@@ -172,7 +179,9 @@ function getState(): AppState {
   };
 }
 
-async function refreshMonitorsInternal(shouldNotifyRenderer: boolean): Promise<void> {
+async function refreshMonitorsInternal(
+  shouldNotifyRenderer: boolean
+): Promise<void> {
   try {
     monitors = await listMonitors();
   } catch (error) {
@@ -197,10 +206,17 @@ async function applyPresetById(id: string): Promise<void> {
 
   const monitor = monitors.find((item) => item.id === preset.monitorId);
   if (!monitor) {
-    throw new Error(`Monitor przypisany do presetu "${preset.name}" nie jest obecnie dostępny.`);
+    throw new Error(
+      `Monitor przypisany do presetu "${preset.name}" nie jest obecnie dostępny.`
+    );
   }
 
-  await applyDisplayMode(monitor.deviceName, preset.width, preset.height, preset.refreshRate);
+  await applyDisplayMode(
+    monitor.deviceName,
+    preset.width,
+    preset.height,
+    preset.refreshRate
+  );
   await refreshMonitorsInternal(false);
   trayController.rebuild();
   broadcastState();
@@ -240,7 +256,11 @@ function buildPreset(input: CreatePresetInput, previous?: Preset): Preset {
   };
 }
 
-function validateMode(width: number, height: number, refreshRate: number): void {
+function validateMode(
+  width: number,
+  height: number,
+  refreshRate: number
+): void {
   if (!Number.isInteger(width) || width < 640 || width > 10000) {
     throw new Error("Szerokość musi być liczbą całkowitą z zakresu 640-10000.");
   }
@@ -249,8 +269,14 @@ function validateMode(width: number, height: number, refreshRate: number): void 
     throw new Error("Wysokość musi być liczbą całkowitą z zakresu 480-10000.");
   }
 
-  if (!Number.isInteger(refreshRate) || refreshRate < 30 || refreshRate > 1000) {
-    throw new Error("Odświeżanie musi być liczbą całkowitą z zakresu 30-1000 Hz.");
+  if (
+    !Number.isInteger(refreshRate) ||
+    refreshRate < 30 ||
+    refreshRate > 1000
+  ) {
+    throw new Error(
+      "Odświeżanie musi być liczbą całkowitą z zakresu 30-1000 Hz."
+    );
   }
 }
 
@@ -293,7 +319,7 @@ function broadcastState(): void {
 function sendAppError(payload: AppErrorPayload): void {
   mainWindow?.webContents.send("app:error", payload);
 
-  if (!mainWindow || !mainWindow.isVisible()) {
+  if (!mainWindow?.isVisible()) {
     void dialog.showErrorBox(payload.title, payload.message);
   }
 }
