@@ -1,7 +1,7 @@
 import type {
   AppErrorPayload,
-  AppState,
   ApplyPresetResult,
+  AppState,
   CreatePresetInput,
   UpdatePresetInput
 } from "../../shared/types";
@@ -15,7 +15,9 @@ export type ReschangerApi = {
   applyPreset: (id: string) => Promise<AppState>;
   setAutostart: (enabled: boolean) => Promise<AppState>;
   onStateChanged: (callback: (state: AppState) => void) => () => void;
-  onPresetApplied: (callback: (result: ApplyPresetResult) => void) => () => void;
+  onPresetApplied: (
+    callback: (result: ApplyPresetResult) => void
+  ) => () => void;
   onAppError: (callback: (error: AppErrorPayload) => void) => () => void;
 };
 

@@ -1,4 +1,11 @@
-import { app, Menu, nativeImage, Notification, Tray, type BrowserWindow } from "electron";
+import {
+  app,
+  type BrowserWindow,
+  Menu,
+  Notification,
+  nativeImage,
+  Tray
+} from "electron";
 import type { AppState } from "../shared/types";
 
 export type TrayControllerOptions = {
@@ -86,7 +93,10 @@ export class TrayController {
   }
 }
 
-export function attachWindowHideToTray(window: BrowserWindow, getShouldQuit: () => boolean): void {
+export function attachWindowHideToTray(
+  window: BrowserWindow,
+  getShouldQuit: () => boolean
+): void {
   window.on("close", (event) => {
     if (getShouldQuit()) {
       return;
@@ -116,8 +126,10 @@ function createIconBitmap(): Buffer {
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const offset = (y * width + x) * 4;
-      const isBorder = x === 1 || x === width - 2 || y === 2 || y === height - 4;
-      const isStand = (x >= 6 && x <= 9 && y >= 12) || (x >= 4 && x <= 11 && y === 14);
+      const isBorder =
+        x === 1 || x === width - 2 || y === 2 || y === height - 4;
+      const isStand =
+        (x >= 6 && x <= 9 && y >= 12) || (x >= 4 && x <= 11 && y === 14);
       const isScreen = x > 1 && x < width - 2 && y > 2 && y < height - 4;
 
       if (isBorder || isStand) {
@@ -143,7 +155,8 @@ function createIconBitmap(): Buffer {
 }
 
 function showTrayError(error: unknown): void {
-  const message = error instanceof Error ? error.message : "Wystąpił nieznany błąd.";
+  const message =
+    error instanceof Error ? error.message : "Wystąpił nieznany błąd.";
 
   if (Notification.isSupported()) {
     new Notification({
