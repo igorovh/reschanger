@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { applyDisplayMode, listMonitors } from "./display/windowsDisplay";
 import { SettingsStore } from "./store";
 import { attachWindowHideToTray, TrayController } from "./tray";
+import { isLocale, t, type Locale } from "../shared/i18n";
 import type {
   AppErrorPayload,
   AppState,
@@ -121,7 +122,7 @@ function registerIpcHandlers(): void {
     const preset = settings.presets.find((item) => item.id === id);
 
     if (!preset) {
-      throw new Error("Nie znaleziono presetu do aktualizacji.");
+      throw new Error(t(currentLocale(), "error.presetUpdateMissing"));
     }
 
     const mergedInput: CreatePresetInput = {
@@ -163,6 +164,17 @@ function registerIpcHandlers(): void {
     broadcastState();
     return getState();
   });
+
+  ipcMain.handle("language:set", async (_event, language: Locale) => {
+    if (!isLocale(language)) {
+      throw new Error(t(currentLocale(), "error.unsupportedLanguage"));
+    }
+
+    await store.setLanguage(language);
+    broadcastState();
+    trayController.rebuild();
+    return getState();
+  });
 }
 
 function getState(): AppState {
@@ -174,10 +186,10 @@ function getState(): AppState {
 
 async function refreshMonitorsInternal(shouldNotifyRenderer: boolean): Promise<void> {
   try {
-    monitors = await listMonitors();
+    monitors = await listMonitors(currentLocale());
   } catch (error) {
     monitors = [];
-    const payload = toAppError("Nie udało się odświeżyć monitorów.", error);
+    const payload = toAppError(t(currentLocale(), "error.refreshMonitorsFailed"), error);
     sendAppError(payload);
   }
 
@@ -192,15 +204,15 @@ async function applyPresetById(id: string): Promise<void> {
   const preset = store.getSettings().presets.find((item) => item.id === id);
 
   if (!preset) {
-    throw new Error("Nie znaleziono presetu.");
+    throw new Error(t(currentLocale(), "error.presetMissing"));
   }
 
   const monitor = monitors.find((item) => item.id === preset.monitorId);
   if (!monitor) {
-    throw new Error(`Monitor przypisany do presetu "${preset.name}" nie jest obecnie dostępny.`);
+    throw new Error(t(currentLocale(), "error.monitorUnavailable", { name: preset.name }));
   }
 
-  await applyDisplayMode(monitor.deviceName, preset.width, preset.height, preset.refreshRate);
+  await applyDisplayMode(monitor.deviceName, preset.width, preset.height, preset.refreshRate, currentLocale());
   await refreshMonitorsInternal(false);
   trayController.rebuild();
   broadcastState();
@@ -208,7 +220,10 @@ async function applyPresetById(id: string): Promise<void> {
   const result: ApplyPresetResult = {
     presetId: preset.id,
     presetName: preset.name,
-    message: `Zastosowano ${preset.width}x${preset.height} @ ${preset.refreshRate} Hz dla ${preset.monitorName}.`
+    message: t(currentLocale(), "message.presetApplied", {
+      mode: formatMode(preset.width, preset.height, preset.refreshRate),
+      monitorName: preset.monitorName
+    })
   };
   mainWindow?.webContents.send("preset:applied", result);
 }
@@ -216,12 +231,12 @@ async function applyPresetById(id: string): Promise<void> {
 function buildPreset(input: CreatePresetInput, previous?: Preset): Preset {
   const monitor = monitors.find((item) => item.id === input.monitorId);
   if (!monitor) {
-    throw new Error("Wybierz monitor z aktualnie wykrytej listy.");
+    throw new Error(t(currentLocale(), "error.selectCurrentMonitor"));
   }
 
   const name = input.name.trim();
   if (name.length === 0) {
-    throw new Error("Nazwa presetu nie może być pusta.");
+    throw new Error(t(currentLocale(), "error.presetNameRequired"));
   }
 
   validateMode(input.width, input.height, input.refreshRate);
@@ -242,15 +257,15 @@ function buildPreset(input: CreatePresetInput, previous?: Preset): Preset {
 
 function validateMode(width: number, height: number, refreshRate: number): void {
   if (!Number.isInteger(width) || width < 640 || width > 10000) {
-    throw new Error("Szerokość musi być liczbą całkowitą z zakresu 640-10000.");
+    throw new Error(t(currentLocale(), "error.widthInvalid"));
   }
 
   if (!Number.isInteger(height) || height < 480 || height > 10000) {
-    throw new Error("Wysokość musi być liczbą całkowitą z zakresu 480-10000.");
+    throw new Error(t(currentLocale(), "error.heightInvalid"));
   }
 
   if (!Number.isInteger(refreshRate) || refreshRate < 30 || refreshRate > 1000) {
-    throw new Error("Odświeżanie musi być liczbą całkowitą z zakresu 30-1000 Hz.");
+    throw new Error(t(currentLocale(), "error.refreshRateInvalid"));
   }
 }
 
@@ -290,6 +305,14 @@ function broadcastState(): void {
   mainWindow?.webContents.send("state:changed", getState());
 }
 
+function currentLocale(): Locale {
+  return store.getSettings().language;
+}
+
+function formatMode(width: number, height: number, refreshRate: number): string {
+  return `${width}x${height} @ ${refreshRate} Hz`;
+}
+
 function sendAppError(payload: AppErrorPayload): void {
   mainWindow?.webContents.send("app:error", payload);
 
@@ -301,6 +324,6 @@ function sendAppError(payload: AppErrorPayload): void {
 function toAppError(title: string, error: unknown): AppErrorPayload {
   return {
     title,
-    message: error instanceof Error ? error.message : "Wystąpił nieznany błąd."
+    message: error instanceof Error ? error.message : t(currentLocale(), "error.unknown")
   };
 }

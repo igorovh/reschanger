@@ -9,3 +9,5 @@ export type {
   Preset,
   UpdatePresetInput
 } from "../../shared/types";
+
+export type { Locale, TranslationKey } from "../../shared/i18n";

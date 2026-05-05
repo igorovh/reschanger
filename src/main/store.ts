@@ -1,6 +1,7 @@
 import { app } from "electron";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { DEFAULT_LOCALE, isLocale, type Locale } from "../shared/i18n";
 import type { AppSettings, Preset } from "../shared/types";
 
 const SETTINGS_VERSION = 1;
@@ -8,6 +9,7 @@ const SETTINGS_VERSION = 1;
 const DEFAULT_SETTINGS: AppSettings = {
   version: SETTINGS_VERSION,
   autostart: false,
+  language: DEFAULT_LOCALE,
   presets: []
 };
 
@@ -56,6 +58,15 @@ export class SettingsStore {
     return this.getSettings();
   }
 
+  async setLanguage(language: Locale): Promise<AppSettings> {
+    this.settings = {
+      ...this.settings,
+      language
+    };
+    await this.save();
+    return this.getSettings();
+  }
+
   async setPresets(presets: Preset[]): Promise<AppSettings> {
     this.settings = {
       ...this.settings,
@@ -89,6 +100,7 @@ function normalizeSettings(value: unknown): AppSettings {
   return {
     version: SETTINGS_VERSION,
     autostart: typeof value.autostart === "boolean" ? value.autostart : false,
+    language: isLocale(value.language) ? value.language : DEFAULT_LOCALE,
     presets: Array.isArray(value.presets) ? value.presets.filter(isPreset) : []
   };
 }

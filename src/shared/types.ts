@@ -1,3 +1,5 @@
+import type { Locale } from "./i18n";
+
 export type DisplayMode = {
   width: number;
   height: number;
@@ -27,6 +29,7 @@ export type Preset = {
 export type AppSettings = {
   version: 1;
   autostart: boolean;
+  language: Locale;
   presets: Preset[];
 };
 

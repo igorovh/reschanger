@@ -6,6 +6,7 @@ import type {
   CreatePresetInput,
   UpdatePresetInput
 } from "../shared/types";
+import type { Locale } from "../shared/i18n";
 
 export type ReschangerApi = {
   getState: () => Promise<AppState>;
@@ -15,6 +16,7 @@ export type ReschangerApi = {
   deletePreset: (id: string) => Promise<AppState>;
   applyPreset: (id: string) => Promise<AppState>;
   setAutostart: (enabled: boolean) => Promise<AppState>;
+  setLanguage: (language: Locale) => Promise<AppState>;
   onStateChanged: (callback: (state: AppState) => void) => () => void;
   onPresetApplied: (callback: (result: ApplyPresetResult) => void) => () => void;
   onAppError: (callback: (error: AppErrorPayload) => void) => () => void;
@@ -28,6 +30,7 @@ const api: ReschangerApi = {
   deletePreset: (id) => ipcRenderer.invoke("presets:delete", id) as Promise<AppState>,
   applyPreset: (id) => ipcRenderer.invoke("presets:apply", id) as Promise<AppState>,
   setAutostart: (enabled) => ipcRenderer.invoke("autostart:set", enabled) as Promise<AppState>,
+  setLanguage: (language) => ipcRenderer.invoke("language:set", language) as Promise<AppState>,
   onStateChanged: (callback) => subscribe("state:changed", callback),
   onPresetApplied: (callback) => subscribe("preset:applied", callback),
   onAppError: (callback) => subscribe("app:error", callback)

@@ -1,4 +1,5 @@
 import { app, Menu, nativeImage, Notification, Tray, type BrowserWindow } from "electron";
+import { t, type Locale } from "../shared/i18n";
 import type { AppState } from "../shared/types";
 
 export type TrayControllerOptions = {
@@ -33,6 +34,7 @@ export class TrayController {
     }
 
     const state = this.options.getState();
+    const locale = state.settings.language;
     const monitorIds = new Set(state.monitors.map((monitor) => monitor.id));
     const presetItems = state.settings.presets.map((preset) => ({
       label: `${preset.name} - ${preset.monitorName} - ${preset.width}x${preset.height} @ ${preset.refreshRate} Hz`,
@@ -41,14 +43,14 @@ export class TrayController {
         try {
           await this.options.applyPreset(preset.id);
         } catch (error) {
-          showTrayError(error);
+          showTrayError(error, locale);
         }
       }
     }));
 
     const menu = Menu.buildFromTemplate([
       {
-        label: "Otwórz konfigurację",
+        label: t(locale, "tray.openConfig"),
         click: () => this.options.showWindow()
       },
       { type: "separator" },
@@ -56,23 +58,23 @@ export class TrayController {
         ? presetItems
         : [
             {
-              label: "Brak zapisanych presetów",
+              label: t(locale, "tray.noPresets"),
               enabled: false
             }
           ]),
       { type: "separator" },
       {
-        label: "Odśwież monitory",
+        label: t(locale, "action.refreshMonitors"),
         click: async () => {
           try {
             await this.options.refreshMonitors();
           } catch (error) {
-            showTrayError(error);
+            showTrayError(error, locale);
           }
         }
       },
       {
-        label: "Zakończ",
+        label: t(locale, "tray.quit"),
         click: () => this.options.quit()
       }
     ]);
@@ -142,8 +144,8 @@ function createIconBitmap(): Buffer {
   return buffer;
 }
 
-function showTrayError(error: unknown): void {
-  const message = error instanceof Error ? error.message : "Wystąpił nieznany błąd.";
+function showTrayError(error: unknown, locale: Locale): void {
+  const message = error instanceof Error ? error.message : t(locale, "error.unknown");
 
   if (Notification.isSupported()) {
     new Notification({

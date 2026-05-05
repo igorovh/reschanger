@@ -5,6 +5,7 @@ import type {
   CreatePresetInput,
   UpdatePresetInput
 } from "../../shared/types";
+import type { Locale } from "../../shared/i18n";
 
 export type ReschangerApi = {
   getState: () => Promise<AppState>;
@@ -14,6 +15,7 @@ export type ReschangerApi = {
   deletePreset: (id: string) => Promise<AppState>;
   applyPreset: (id: string) => Promise<AppState>;
   setAutostart: (enabled: boolean) => Promise<AppState>;
+  setLanguage: (language: Locale) => Promise<AppState>;
   onStateChanged: (callback: (state: AppState) => void) => () => void;
   onPresetApplied: (callback: (result: ApplyPresetResult) => void) => () => void;
   onAppError: (callback: (error: AppErrorPayload) => void) => () => void;

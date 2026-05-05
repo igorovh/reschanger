@@ -10,8 +10,9 @@ import {
   X
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { DEFAULT_LOCALE, LOCALES, t } from "../../shared/i18n";
 import { api } from "./api";
-import type { AppState, MonitorInfo, Preset } from "./types";
+import type { AppState, Locale, MonitorInfo, Preset } from "./types";
 
 type FormState = {
   name: string;
@@ -28,13 +29,14 @@ const emptyState: AppState = {
   settings: {
     version: 1,
     autostart: false,
+    language: DEFAULT_LOCALE,
     presets: []
   },
   monitors: []
 };
 
 const initialForm: FormState = {
-  name: "Opcja 1",
+  name: nextPresetName(DEFAULT_LOCALE, []),
   monitorId: "",
   resolution: "",
   refreshRate: 60,
@@ -49,8 +51,9 @@ export function App(): React.JSX.Element {
   const [form, setForm] = useState<FormState>(initialForm);
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<string>("Ładowanie ustawień...");
+  const [notice, setNotice] = useState<string>(() => t(DEFAULT_LOCALE, "notice.loadingSettings"));
   const [error, setError] = useState<string | null>(null);
+  const locale = state.settings.language;
 
   useEffect(() => {
     let mounted = true;
@@ -62,10 +65,10 @@ export function App(): React.JSX.Element {
           return;
         }
         setState(nextState);
-        setNotice("Gotowe.");
+        setNotice(t(nextState.settings.language, "notice.ready"));
       })
       .catch((loadError: unknown) => {
-        setError(toMessage(loadError));
+        setError(toMessage(loadError, locale));
       });
 
     const unsubscribeState = api.onStateChanged((nextState) => {
@@ -87,7 +90,7 @@ export function App(): React.JSX.Element {
       unsubscribeApplied();
       unsubscribeError();
     };
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     if (state.monitors.length === 0) {
@@ -104,8 +107,8 @@ export function App(): React.JSX.Element {
       return;
     }
 
-    setForm((current) => createFormForMonitor(firstMonitor, current.name || nextPresetName(state.settings.presets)));
-  }, [form.monitorId, state.monitors, state.settings.presets]);
+    setForm((current) => createFormForMonitor(firstMonitor, current.name || nextPresetName(locale, state.settings.presets)));
+  }, [form.monitorId, locale, state.monitors, state.settings.presets]);
 
   const selectedMonitor = useMemo(
     () => state.monitors.find((monitor) => monitor.id === form.monitorId) ?? null,
@@ -144,12 +147,12 @@ export function App(): React.JSX.Element {
   const canSave = selectedMonitor !== null && form.name.trim().length > 0 && selectedMode.width > 0 && selectedMode.height > 0;
 
   async function refreshMonitors(): Promise<void> {
-    await runAction("Odświeżono monitory.", () => api.refreshMonitors());
+    await runAction(t(locale, "notice.monitorsRefreshed"), () => api.refreshMonitors());
   }
 
   async function savePreset(): Promise<void> {
     if (!selectedMonitor || !canSave) {
-      setError("Uzupełnij nazwę, monitor, rozdzielczość i Hz.");
+      setError(t(locale, "validation.completePreset"));
       return;
     }
 
@@ -162,31 +165,50 @@ export function App(): React.JSX.Element {
     };
 
     if (editingPresetId) {
-      await runAction("Zapisano zmiany presetu.", () => api.updatePreset(editingPresetId, payload));
+      await runAction(t(locale, "notice.presetUpdated"), () => api.updatePreset(editingPresetId, payload));
       cancelEdit();
       return;
     }
 
-    await runAction("Zapisano preset.", () => api.createPreset(payload));
+    await runAction(t(locale, "notice.presetSaved"), () => api.createPreset(payload));
     setForm((current) => ({
       ...current,
-      name: nextPresetName([...state.settings.presets, createPreviewPreset(payload, selectedMonitor)])
+      name: nextPresetName(locale, [...state.settings.presets, createPreviewPreset(payload, selectedMonitor)])
     }));
   }
 
   async function applyPreset(preset: Preset): Promise<void> {
-    await runAction(`Zastosowano preset "${preset.name}".`, () => api.applyPreset(preset.id));
+    await runAction(t(locale, "notice.presetApplied", { name: preset.name }), () => api.applyPreset(preset.id));
   }
 
   async function deletePreset(preset: Preset): Promise<void> {
-    await runAction(`Usunięto preset "${preset.name}".`, () => api.deletePreset(preset.id));
+    await runAction(t(locale, "notice.presetDeleted", { name: preset.name }), () => api.deletePreset(preset.id));
     if (editingPresetId === preset.id) {
       cancelEdit();
     }
   }
 
   async function setAutostart(enabled: boolean): Promise<void> {
-    await runAction(enabled ? "Włączono autostart." : "Wyłączono autostart.", () => api.setAutostart(enabled));
+    await runAction(t(locale, enabled ? "autostart.enabled" : "autostart.disabled"), () => api.setAutostart(enabled));
+  }
+
+  async function setLanguage(language: Locale): Promise<void> {
+    if (language === locale) {
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+
+    try {
+      const nextState = await api.setLanguage(language);
+      setState(nextState);
+      setNotice(t(language, "notice.ready"));
+    } catch (languageError) {
+      setError(toMessage(languageError, locale));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function runAction(successMessage: string, action: () => Promise<AppState>): Promise<void> {
@@ -198,7 +220,7 @@ export function App(): React.JSX.Element {
       setState(nextState);
       setNotice(successMessage);
     } catch (actionError) {
-      setError(toMessage(actionError));
+      setError(toMessage(actionError, locale));
     } finally {
       setBusy(false);
     }
@@ -225,11 +247,11 @@ export function App(): React.JSX.Element {
     const monitor = state.monitors.find((item) => item.id === form.monitorId) ?? state.monitors[0] ?? null;
     setEditingPresetId(null);
     if (monitor) {
-      setForm(createFormForMonitor(monitor, nextPresetName(state.settings.presets)));
+      setForm(createFormForMonitor(monitor, nextPresetName(locale, state.settings.presets)));
     } else {
       setForm({
         ...initialForm,
-        name: nextPresetName(state.settings.presets)
+        name: nextPresetName(locale, state.settings.presets)
       });
     }
   }
@@ -239,11 +261,33 @@ export function App(): React.JSX.Element {
       <header className="topbar">
         <div>
           <h1>reschanger</h1>
-          <p>Szybka zmiana rozdzielczości i odświeżania z zasobnika systemowego.</p>
+          <p>{t(locale, "app.subtitle")}</p>
         </div>
-        <button className="icon-button" type="button" onClick={() => void refreshMonitors()} disabled={busy} title="Odśwież monitory">
-          <RefreshCw size={18} />
-        </button>
+        <div className="topbar-actions">
+          <label className="language-select">
+            <span>{t(locale, "field.language")}</span>
+            <select
+              value={locale}
+              onChange={(event) => void setLanguage(event.currentTarget.value as Locale)}
+              disabled={busy}
+            >
+              {LOCALES.map((language) => (
+                <option key={language} value={language}>
+                  {languageLabel(locale, language)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            className="icon-button"
+            type="button"
+            onClick={() => void refreshMonitors()}
+            disabled={busy}
+            title={t(locale, "action.refreshMonitors")}
+          >
+            <RefreshCw size={18} />
+          </button>
+        </div>
       </header>
 
       <section className="status-row" aria-live="polite">
@@ -266,7 +310,7 @@ export function App(): React.JSX.Element {
             disabled={busy}
           />
           <span className="switch-track" />
-          <span>Autostart z Windows</span>
+          <span>{t(locale, "autostart.label")}</span>
         </label>
       </section>
 
@@ -274,21 +318,21 @@ export function App(): React.JSX.Element {
         <section className="panel">
           <div className="panel-heading">
             <Monitor size={20} />
-            <h2>{editingPresetId ? "Edytuj preset" : "Nowy preset"}</h2>
+            <h2>{editingPresetId ? t(locale, "form.editPreset") : t(locale, "form.newPreset")}</h2>
           </div>
 
           <div className="field">
-            <label htmlFor="preset-name">Nazwa</label>
+            <label htmlFor="preset-name">{t(locale, "field.name")}</label>
             <input
               id="preset-name"
               value={form.name}
               onChange={(event) => setForm({ ...form, name: event.currentTarget.value })}
-              placeholder="Opcja 1"
+              placeholder={nextPresetName(locale, [])}
             />
           </div>
 
           <div className="field">
-            <label htmlFor="monitor">Monitor</label>
+            <label htmlFor="monitor">{t(locale, "field.monitor")}</label>
             <select
               id="monitor"
               value={form.monitorId}
@@ -299,7 +343,7 @@ export function App(): React.JSX.Element {
                 }
               }}
             >
-              {state.monitors.length === 0 ? <option value="">Brak wykrytych monitorów</option> : null}
+              {state.monitors.length === 0 ? <option value="">{t(locale, "empty.noMonitors")}</option> : null}
               {state.monitors.map((monitor) => (
                 <option key={monitor.id} value={monitor.id}>
                   {monitor.name} ({monitor.deviceName})
@@ -310,7 +354,13 @@ export function App(): React.JSX.Element {
 
           {selectedMonitor ? (
             <div className="current-mode">
-              Aktualnie: {selectedMonitor.current.width}x{selectedMonitor.current.height} @ {selectedMonitor.current.refreshRate} Hz
+              {t(locale, "form.currentMode", {
+                mode: formatMode(
+                  selectedMonitor.current.width,
+                  selectedMonitor.current.height,
+                  selectedMonitor.current.refreshRate
+                )
+              })}
             </div>
           ) : null}
 
@@ -320,13 +370,13 @@ export function App(): React.JSX.Element {
               checked={form.manualMode}
               onChange={(event) => setForm({ ...form, manualMode: event.currentTarget.checked })}
             />
-            <span>Wpisz tryb ręcznie</span>
+            <span>{t(locale, "form.manualMode")}</span>
           </label>
 
           {form.manualMode ? (
             <div className="triple-grid">
               <div className="field">
-                <label htmlFor="manual-width">Szerokość</label>
+                <label htmlFor="manual-width">{t(locale, "field.width")}</label>
                 <input
                   id="manual-width"
                   type="number"
@@ -337,7 +387,7 @@ export function App(): React.JSX.Element {
                 />
               </div>
               <div className="field">
-                <label htmlFor="manual-height">Wysokość</label>
+                <label htmlFor="manual-height">{t(locale, "field.height")}</label>
                 <input
                   id="manual-height"
                   type="number"
@@ -362,7 +412,7 @@ export function App(): React.JSX.Element {
           ) : (
             <div className="double-grid">
               <div className="field">
-                <label htmlFor="resolution">Rozdzielczość</label>
+                <label htmlFor="resolution">{t(locale, "field.resolution")}</label>
                 <select
                   id="resolution"
                   value={form.resolution}
@@ -376,7 +426,7 @@ export function App(): React.JSX.Element {
                 </select>
               </div>
               <div className="field">
-                <label htmlFor="refresh-rate">Odświeżanie</label>
+                <label htmlFor="refresh-rate">{t(locale, "field.refreshRate")}</label>
                 <select
                   id="refresh-rate"
                   value={form.refreshRate}
@@ -395,12 +445,12 @@ export function App(): React.JSX.Element {
           <div className="actions">
             <button className="primary-button" type="button" onClick={() => void savePreset()} disabled={!canSave || busy}>
               {editingPresetId ? <Save size={18} /> : <Plus size={18} />}
-              <span>{editingPresetId ? "Zapisz zmiany" : "Dodaj preset"}</span>
+              <span>{editingPresetId ? t(locale, "action.saveChanges") : t(locale, "action.addPreset")}</span>
             </button>
             {editingPresetId ? (
               <button className="secondary-button" type="button" onClick={cancelEdit} disabled={busy}>
                 <X size={18} />
-                <span>Anuluj</span>
+                <span>{t(locale, "action.cancel")}</span>
               </button>
             ) : null}
           </div>
@@ -409,12 +459,12 @@ export function App(): React.JSX.Element {
         <section className="panel">
           <div className="panel-heading">
             <Save size={20} />
-            <h2>Zapisane presety</h2>
+            <h2>{t(locale, "preset.savedPresets")}</h2>
           </div>
 
           <div className="preset-list">
             {state.settings.presets.length === 0 ? (
-              <div className="empty-state">Brak zapisanych presetów.</div>
+              <div className="empty-state">{t(locale, "empty.noPresets")}</div>
             ) : (
               state.settings.presets.map((preset) => {
                 const isMonitorAvailable = state.monitors.some((monitor) => monitor.id === preset.monitorId);
@@ -424,27 +474,33 @@ export function App(): React.JSX.Element {
                     <div className="preset-main">
                       <strong>{preset.name}</strong>
                       <span>
-                        {preset.monitorName} · {preset.width}x{preset.height} @ {preset.refreshRate} Hz
+                        {preset.monitorName} · {formatMode(preset.width, preset.height, preset.refreshRate)}
                       </span>
-                      {!isMonitorAvailable ? <em>Monitor niedostępny</em> : null}
+                      {!isMonitorAvailable ? <em>{t(locale, "preset.monitorUnavailable")}</em> : null}
                     </div>
                     <div className="preset-actions">
                       <button
                         className="icon-button"
                         type="button"
-                        title="Zastosuj"
+                        title={t(locale, "action.apply")}
                         onClick={() => void applyPreset(preset)}
                         disabled={!isMonitorAvailable || busy}
                       >
                         <Play size={17} />
                       </button>
-                      <button className="icon-button" type="button" title="Edytuj" onClick={() => editPreset(preset)} disabled={busy}>
+                      <button
+                        className="icon-button"
+                        type="button"
+                        title={t(locale, "action.edit")}
+                        onClick={() => editPreset(preset)}
+                        disabled={busy}
+                      >
                         <Pencil size={17} />
                       </button>
                       <button
                         className="icon-button danger"
                         type="button"
-                        title="Usuń"
+                        title={t(locale, "action.delete")}
                         onClick={() => void deletePreset(preset)}
                         disabled={busy}
                       >
@@ -511,8 +567,12 @@ function parseResolution(resolution: string): { width: number; height: number } 
   };
 }
 
-function nextPresetName(presets: Preset[]): string {
-  return `Opcja ${presets.length + 1}`;
+function nextPresetName(locale: Locale, presets: Preset[]): string {
+  return t(locale, "preset.defaultName", { number: presets.length + 1 });
+}
+
+function languageLabel(locale: Locale, language: Locale): string {
+  return t(locale, language === "pl" ? "language.pl" : "language.en");
 }
 
 function createPreviewPreset(
@@ -533,6 +593,10 @@ function createPreviewPreset(
   };
 }
 
-function toMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Wystąpił nieznany błąd.";
+function formatMode(width: number, height: number, refreshRate: number): string {
+  return `${width}x${height} @ ${refreshRate} Hz`;
+}
+
+function toMessage(error: unknown, locale: Locale): string {
+  return error instanceof Error ? error.message : t(locale, "error.unknown");
 }
