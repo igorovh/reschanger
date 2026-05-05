@@ -6,12 +6,21 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Settings,
   Trash2,
-  X
+  X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import {
+  DEFAULT_LOCALE,
+  DEFAULT_THEME_MODE,
+  formatMode,
+  LOCALES,
+  THEME_MODES,
+  t,
+} from "../../shared/i18n";
 import { api } from "./api";
-import type { AppState, MonitorInfo, Preset } from "./types";
+import type { AppState, Locale, MonitorInfo, Preset, ThemeMode } from "./types";
 
 type FormState = {
   name: string;
@@ -28,20 +37,22 @@ const emptyState: AppState = {
   settings: {
     version: 1,
     autostart: false,
-    presets: []
+    language: DEFAULT_LOCALE,
+    themeMode: DEFAULT_THEME_MODE,
+    presets: [],
   },
-  monitors: []
+  monitors: [],
 };
 
 const initialForm: FormState = {
-  name: "Opcja 1",
+  name: nextPresetName(DEFAULT_LOCALE, []),
   monitorId: "",
   resolution: "",
   refreshRate: 60,
   manualMode: false,
   manualWidth: 1920,
   manualHeight: 1080,
-  manualRefreshRate: 60
+  manualRefreshRate: 60,
 };
 
 export function App(): React.JSX.Element {
@@ -49,8 +60,17 @@ export function App(): React.JSX.Element {
   const [form, setForm] = useState<FormState>(initialForm);
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<string>("Ładowanie ustawień...");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [notice, setNotice] = useState<string>(() =>
+    t(DEFAULT_LOCALE, "notice.loadingSettings"),
+  );
   const [error, setError] = useState<string | null>(null);
+  const locale = state.settings.language;
+  const themeMode = state.settings.themeMode;
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = themeMode;
+  }, [themeMode]);
 
   useEffect(() => {
     let mounted = true;
@@ -62,10 +82,10 @@ export function App(): React.JSX.Element {
           return;
         }
         setState(nextState);
-        setNotice("Gotowe.");
+        setNotice(t(nextState.settings.language, "notice.ready"));
       })
       .catch((loadError: unknown) => {
-        setError(toMessage(loadError));
+        setError(toMessage(loadError, DEFAULT_LOCALE));
       });
 
     const unsubscribeState = api.onStateChanged((nextState) => {
@@ -95,7 +115,7 @@ export function App(): React.JSX.Element {
     }
 
     const currentMonitor = state.monitors.find(
-      (monitor) => monitor.id === form.monitorId
+      (monitor) => monitor.id === form.monitorId,
     );
     if (currentMonitor) {
       return;
@@ -109,25 +129,25 @@ export function App(): React.JSX.Element {
     setForm((current) =>
       createFormForMonitor(
         firstMonitor,
-        current.name || nextPresetName(state.settings.presets)
-      )
+        current.name || nextPresetName(locale, state.settings.presets),
+      ),
     );
-  }, [form.monitorId, state.monitors, state.settings.presets]);
+  }, [form.monitorId, locale, state.monitors, state.settings.presets]);
 
   const selectedMonitor = useMemo(
     () =>
       state.monitors.find((monitor) => monitor.id === form.monitorId) ?? null,
-    [form.monitorId, state.monitors]
+    [form.monitorId, state.monitors],
   );
 
   const resolutionOptions = useMemo(
     () => getResolutionOptions(selectedMonitor),
-    [selectedMonitor]
+    [selectedMonitor],
   );
 
   const refreshOptions = useMemo(
     () => getRefreshOptions(selectedMonitor, form.resolution),
-    [form.resolution, selectedMonitor]
+    [form.resolution, selectedMonitor],
   );
 
   useEffect(() => {
@@ -140,7 +160,7 @@ export function App(): React.JSX.Element {
 
     setForm((current) => ({
       ...current,
-      refreshRate: refreshOptions[0] ?? current.refreshRate
+      refreshRate: refreshOptions[0] ?? current.refreshRate,
     }));
   }, [form.refreshRate, refreshOptions]);
 
@@ -148,11 +168,11 @@ export function App(): React.JSX.Element {
     ? {
         width: form.manualWidth,
         height: form.manualHeight,
-        refreshRate: form.manualRefreshRate
+        refreshRate: form.manualRefreshRate,
       }
     : {
         ...parseResolution(form.resolution),
-        refreshRate: form.refreshRate
+        refreshRate: form.refreshRate,
       };
 
   const canSave =
@@ -162,12 +182,14 @@ export function App(): React.JSX.Element {
     selectedMode.height > 0;
 
   async function refreshMonitors(): Promise<void> {
-    await runAction("Odświeżono monitory.", () => api.refreshMonitors());
+    await runAction(t(locale, "notice.monitorsRefreshed"), () =>
+      api.refreshMonitors(),
+    );
   }
 
   async function savePreset(): Promise<void> {
     if (!selectedMonitor || !canSave) {
-      setError("Uzupełnij nazwę, monitor, rozdzielczość i Hz.");
+      setError(t(locale, "validation.completePreset"));
       return;
     }
 
@@ -176,36 +198,40 @@ export function App(): React.JSX.Element {
       monitorId: selectedMonitor.id,
       width: selectedMode.width,
       height: selectedMode.height,
-      refreshRate: selectedMode.refreshRate
+      refreshRate: selectedMode.refreshRate,
     };
 
     if (editingPresetId) {
-      await runAction("Zapisano zmiany presetu.", () =>
-        api.updatePreset(editingPresetId, payload)
+      await runAction(t(locale, "notice.presetUpdated"), () =>
+        api.updatePreset(editingPresetId, payload),
       );
       cancelEdit();
       return;
     }
 
-    await runAction("Zapisano preset.", () => api.createPreset(payload));
+    await runAction(t(locale, "notice.presetSaved"), () =>
+      api.createPreset(payload),
+    );
     setForm((current) => ({
       ...current,
-      name: nextPresetName([
+      name: nextPresetName(locale, [
         ...state.settings.presets,
-        createPreviewPreset(payload, selectedMonitor)
-      ])
+        createPreviewPreset(payload, selectedMonitor),
+      ]),
     }));
   }
 
   async function applyPreset(preset: Preset): Promise<void> {
-    await runAction(`Zastosowano preset "${preset.name}".`, () =>
-      api.applyPreset(preset.id)
+    await runAction(
+      t(locale, "notice.presetApplied", { name: preset.name }),
+      () => api.applyPreset(preset.id),
     );
   }
 
   async function deletePreset(preset: Preset): Promise<void> {
-    await runAction(`Usunięto preset "${preset.name}".`, () =>
-      api.deletePreset(preset.id)
+    await runAction(
+      t(locale, "notice.presetDeleted", { name: preset.name }),
+      () => api.deletePreset(preset.id),
     );
     if (editingPresetId === preset.id) {
       cancelEdit();
@@ -214,14 +240,52 @@ export function App(): React.JSX.Element {
 
   async function setAutostart(enabled: boolean): Promise<void> {
     await runAction(
-      enabled ? "Włączono autostart." : "Wyłączono autostart.",
-      () => api.setAutostart(enabled)
+      t(locale, enabled ? "autostart.enabled" : "autostart.disabled"),
+      () => api.setAutostart(enabled),
     );
+  }
+
+  async function setLanguage(language: Locale): Promise<void> {
+    if (language === locale) {
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+
+    try {
+      const nextState = await api.setLanguage(language);
+      setState(nextState);
+      setNotice(t(language, "notice.ready"));
+    } catch (languageError) {
+      setError(toMessage(languageError, locale));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setThemeMode(theme: ThemeMode): Promise<void> {
+    if (theme === themeMode) {
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+
+    try {
+      const nextState = await api.setThemeMode(theme);
+      setState(nextState);
+      setNotice(t(locale, "settings.updated"));
+    } catch (themeError) {
+      setError(toMessage(themeError, locale));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function runAction(
     successMessage: string,
-    action: () => Promise<AppState>
+    action: () => Promise<AppState>,
   ): Promise<void> {
     setBusy(true);
     setError(null);
@@ -231,7 +295,7 @@ export function App(): React.JSX.Element {
       setState(nextState);
       setNotice(successMessage);
     } catch (actionError) {
-      setError(toMessage(actionError));
+      setError(toMessage(actionError, locale));
     } finally {
       setBusy(false);
     }
@@ -249,11 +313,11 @@ export function App(): React.JSX.Element {
         (mode) =>
           mode.width === preset.width &&
           mode.height === preset.height &&
-          mode.refreshRate === preset.refreshRate
+          mode.refreshRate === preset.refreshRate,
       ),
       manualWidth: preset.width,
       manualHeight: preset.height,
-      manualRefreshRate: preset.refreshRate
+      manualRefreshRate: preset.refreshRate,
     });
   }
 
@@ -265,12 +329,15 @@ export function App(): React.JSX.Element {
     setEditingPresetId(null);
     if (monitor) {
       setForm(
-        createFormForMonitor(monitor, nextPresetName(state.settings.presets))
+        createFormForMonitor(
+          monitor,
+          nextPresetName(locale, state.settings.presets),
+        ),
       );
     } else {
       setForm({
         ...initialForm,
-        name: nextPresetName(state.settings.presets)
+        name: nextPresetName(locale, state.settings.presets),
       });
     }
   }
@@ -280,20 +347,101 @@ export function App(): React.JSX.Element {
       <header className="topbar">
         <div>
           <h1>reschanger</h1>
-          <p>
-            Szybka zmiana rozdzielczości i odświeżania z zasobnika systemowego.
-          </p>
+          <p>{t(locale, "app.subtitle")}</p>
         </div>
-        <button
-          className="icon-button"
-          type="button"
-          onClick={() => void refreshMonitors()}
-          disabled={busy}
-          title="Odśwież monitory"
-        >
-          <RefreshCw size={18} />
-        </button>
+        <div className="topbar-actions">
+          <button
+            className="icon-button"
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            disabled={busy}
+            title={t(locale, "settings.open")}
+          >
+            <Settings size={18} />
+          </button>
+          <button
+            className="icon-button"
+            type="button"
+            onClick={() => void refreshMonitors()}
+            disabled={busy}
+            title={t(locale, "action.refreshMonitors")}
+          >
+            <RefreshCw size={18} />
+          </button>
+        </div>
       </header>
+
+      {settingsOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            className="settings-modal"
+            id="settings-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-title"
+          >
+            <div className="settings-modal-header">
+              <h2 id="settings-title">{t(locale, "settings.title")}</h2>
+              <button
+                className="icon-button"
+                type="button"
+                onClick={() => setSettingsOpen(false)}
+                title={t(locale, "action.cancel")}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="settings-modal-body">
+              <label className="settings-row">
+                <span>{t(locale, "field.language")}</span>
+                <select
+                  value={locale}
+                  onChange={(event) =>
+                    void setLanguage(event.currentTarget.value as Locale)
+                  }
+                  disabled={busy}
+                >
+                  {LOCALES.map((language) => (
+                    <option key={language} value={language}>
+                      {languageLabel(locale, language)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="settings-row">
+                <span>{t(locale, "field.themeMode")}</span>
+                <select
+                  value={themeMode}
+                  onChange={(event) =>
+                    void setThemeMode(event.currentTarget.value as ThemeMode)
+                  }
+                  disabled={busy}
+                >
+                  {THEME_MODES.map((theme) => (
+                    <option key={theme} value={theme}>
+                      {themeModeLabel(locale, theme)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="settings-row switch-row">
+                <span>{t(locale, "autostart.label")}</span>
+                <span className="switch">
+                  <input
+                    type="checkbox"
+                    checked={state.settings.autostart}
+                    onChange={(event) =>
+                      void setAutostart(event.currentTarget.checked)
+                    }
+                    disabled={busy}
+                  />
+                  <span className="switch-track" />
+                </span>
+              </label>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       <section className="status-row" aria-live="polite">
         {error ? (
@@ -307,45 +455,39 @@ export function App(): React.JSX.Element {
             <span>{notice}</span>
           </div>
         )}
-        <label className="switch">
-          <input
-            type="checkbox"
-            checked={state.settings.autostart}
-            onChange={(event) => void setAutostart(event.currentTarget.checked)}
-            disabled={busy}
-          />
-          <span className="switch-track" />
-          <span>Autostart z Windows</span>
-        </label>
       </section>
 
       <div className="content-grid">
         <section className="panel">
           <div className="panel-heading">
             <Monitor size={20} />
-            <h2>{editingPresetId ? "Edytuj preset" : "Nowy preset"}</h2>
+            <h2>
+              {editingPresetId
+                ? t(locale, "form.editPreset")
+                : t(locale, "form.newPreset")}
+            </h2>
           </div>
 
           <div className="field">
-            <label htmlFor="preset-name">Nazwa</label>
+            <label htmlFor="preset-name">{t(locale, "field.name")}</label>
             <input
               id="preset-name"
               value={form.name}
               onChange={(event) =>
                 setForm({ ...form, name: event.currentTarget.value })
               }
-              placeholder="Opcja 1"
+              placeholder={nextPresetName(locale, [])}
             />
           </div>
 
           <div className="field">
-            <label htmlFor="monitor">Monitor</label>
+            <label htmlFor="monitor">{t(locale, "field.monitor")}</label>
             <select
               id="monitor"
               value={form.monitorId}
               onChange={(event) => {
                 const monitor = state.monitors.find(
-                  (item) => item.id === event.currentTarget.value
+                  (item) => item.id === event.currentTarget.value,
                 );
                 if (monitor) {
                   setForm(createFormForMonitor(monitor, form.name));
@@ -353,7 +495,7 @@ export function App(): React.JSX.Element {
               }}
             >
               {state.monitors.length === 0 ? (
-                <option value="">Brak wykrytych monitorów</option>
+                <option value="">{t(locale, "empty.noMonitors")}</option>
               ) : null}
               {state.monitors.map((monitor) => (
                 <option key={monitor.id} value={monitor.id}>
@@ -365,9 +507,13 @@ export function App(): React.JSX.Element {
 
           {selectedMonitor ? (
             <div className="current-mode">
-              Aktualnie: {selectedMonitor.current.width}x
-              {selectedMonitor.current.height} @{" "}
-              {selectedMonitor.current.refreshRate} Hz
+              {t(locale, "form.currentMode", {
+                mode: formatMode(
+                  selectedMonitor.current.width,
+                  selectedMonitor.current.height,
+                  selectedMonitor.current.refreshRate,
+                ),
+              })}
             </div>
           ) : null}
 
@@ -379,13 +525,13 @@ export function App(): React.JSX.Element {
                 setForm({ ...form, manualMode: event.currentTarget.checked })
               }
             />
-            <span>Wpisz tryb ręcznie</span>
+            <span>{t(locale, "form.manualMode")}</span>
           </label>
 
           {form.manualMode ? (
             <div className="triple-grid">
               <div className="field">
-                <label htmlFor="manual-width">Szerokość</label>
+                <label htmlFor="manual-width">{t(locale, "field.width")}</label>
                 <input
                   id="manual-width"
                   type="number"
@@ -395,13 +541,15 @@ export function App(): React.JSX.Element {
                   onChange={(event) =>
                     setForm({
                       ...form,
-                      manualWidth: Number(event.currentTarget.value)
+                      manualWidth: Number(event.currentTarget.value),
                     })
                   }
                 />
               </div>
               <div className="field">
-                <label htmlFor="manual-height">Wysokość</label>
+                <label htmlFor="manual-height">
+                  {t(locale, "field.height")}
+                </label>
                 <input
                   id="manual-height"
                   type="number"
@@ -411,7 +559,7 @@ export function App(): React.JSX.Element {
                   onChange={(event) =>
                     setForm({
                       ...form,
-                      manualHeight: Number(event.currentTarget.value)
+                      manualHeight: Number(event.currentTarget.value),
                     })
                   }
                 />
@@ -427,7 +575,7 @@ export function App(): React.JSX.Element {
                   onChange={(event) =>
                     setForm({
                       ...form,
-                      manualRefreshRate: Number(event.currentTarget.value)
+                      manualRefreshRate: Number(event.currentTarget.value),
                     })
                   }
                 />
@@ -436,7 +584,9 @@ export function App(): React.JSX.Element {
           ) : (
             <div className="double-grid">
               <div className="field">
-                <label htmlFor="resolution">Rozdzielczość</label>
+                <label htmlFor="resolution">
+                  {t(locale, "field.resolution")}
+                </label>
                 <select
                   id="resolution"
                   value={form.resolution}
@@ -452,14 +602,16 @@ export function App(): React.JSX.Element {
                 </select>
               </div>
               <div className="field">
-                <label htmlFor="refresh-rate">Odświeżanie</label>
+                <label htmlFor="refresh-rate">
+                  {t(locale, "field.refreshRate")}
+                </label>
                 <select
                   id="refresh-rate"
                   value={form.refreshRate}
                   onChange={(event) =>
                     setForm({
                       ...form,
-                      refreshRate: Number(event.currentTarget.value)
+                      refreshRate: Number(event.currentTarget.value),
                     })
                   }
                 >
@@ -481,7 +633,11 @@ export function App(): React.JSX.Element {
               disabled={!canSave || busy}
             >
               {editingPresetId ? <Save size={18} /> : <Plus size={18} />}
-              <span>{editingPresetId ? "Zapisz zmiany" : "Dodaj preset"}</span>
+              <span>
+                {editingPresetId
+                  ? t(locale, "action.saveChanges")
+                  : t(locale, "action.addPreset")}
+              </span>
             </button>
             {editingPresetId ? (
               <button
@@ -491,7 +647,7 @@ export function App(): React.JSX.Element {
                 disabled={busy}
               >
                 <X size={18} />
-                <span>Anuluj</span>
+                <span>{t(locale, "action.cancel")}</span>
               </button>
             ) : null}
           </div>
@@ -500,16 +656,16 @@ export function App(): React.JSX.Element {
         <section className="panel">
           <div className="panel-heading">
             <Save size={20} />
-            <h2>Zapisane presety</h2>
+            <h2>{t(locale, "preset.savedPresets")}</h2>
           </div>
 
           <div className="preset-list">
             {state.settings.presets.length === 0 ? (
-              <div className="empty-state">Brak zapisanych presetów.</div>
+              <div className="empty-state">{t(locale, "empty.noPresets")}</div>
             ) : (
               state.settings.presets.map((preset) => {
                 const isMonitorAvailable = state.monitors.some(
-                  (monitor) => monitor.id === preset.monitorId
+                  (monitor) => monitor.id === preset.monitorId,
                 );
 
                 return (
@@ -517,18 +673,22 @@ export function App(): React.JSX.Element {
                     <div className="preset-main">
                       <strong>{preset.name}</strong>
                       <span>
-                        {preset.monitorName} · {preset.width}x{preset.height} @{" "}
-                        {preset.refreshRate} Hz
+                        {preset.monitorName} ·{" "}
+                        {formatMode(
+                          preset.width,
+                          preset.height,
+                          preset.refreshRate,
+                        )}
                       </span>
                       {!isMonitorAvailable ? (
-                        <em>Monitor niedostępny</em>
+                        <em>{t(locale, "preset.monitorUnavailable")}</em>
                       ) : null}
                     </div>
                     <div className="preset-actions">
                       <button
                         className="icon-button"
                         type="button"
-                        title="Zastosuj"
+                        title={t(locale, "action.apply")}
                         onClick={() => void applyPreset(preset)}
                         disabled={!isMonitorAvailable || busy}
                       >
@@ -537,7 +697,7 @@ export function App(): React.JSX.Element {
                       <button
                         className="icon-button"
                         type="button"
-                        title="Edytuj"
+                        title={t(locale, "action.edit")}
                         onClick={() => editPreset(preset)}
                         disabled={busy}
                       >
@@ -546,7 +706,7 @@ export function App(): React.JSX.Element {
                       <button
                         className="icon-button danger"
                         type="button"
-                        title="Usuń"
+                        title={t(locale, "action.delete")}
                         onClick={() => void deletePreset(preset)}
                         disabled={busy}
                       >
@@ -570,7 +730,7 @@ function createFormForMonitor(monitor: MonitorInfo, name: string): FormState {
     (mode) =>
       mode.width === monitor.current.width &&
       mode.height === monitor.current.height &&
-      mode.refreshRate === monitor.current.refreshRate
+      mode.refreshRate === monitor.current.refreshRate,
   );
 
   return {
@@ -583,7 +743,7 @@ function createFormForMonitor(monitor: MonitorInfo, name: string): FormState {
     manualMode: false,
     manualWidth: monitor.current.width,
     manualHeight: monitor.current.height,
-    manualRefreshRate: monitor.current.refreshRate
+    manualRefreshRate: monitor.current.refreshRate,
   };
 }
 
@@ -593,13 +753,13 @@ function getResolutionOptions(monitor: MonitorInfo | null): string[] {
   }
 
   return Array.from(
-    new Set(monitor.modes.map((mode) => `${mode.width}x${mode.height}`))
+    new Set(monitor.modes.map((mode) => `${mode.width}x${mode.height}`)),
   );
 }
 
 function getRefreshOptions(
   monitor: MonitorInfo | null,
-  resolution: string
+  resolution: string,
 ): number[] {
   if (!monitor) {
     return [];
@@ -619,12 +779,27 @@ function parseResolution(resolution: string): {
   const [width = "0", height = "0"] = resolution.split("x");
   return {
     width: Number(width),
-    height: Number(height)
+    height: Number(height),
   };
 }
 
-function nextPresetName(presets: Preset[]): string {
-  return `Opcja ${presets.length + 1}`;
+function nextPresetName(locale: Locale, presets: Preset[]): string {
+  return t(locale, "preset.defaultName", { number: presets.length + 1 });
+}
+
+function languageLabel(locale: Locale, language: Locale): string {
+  return t(locale, language === "pl" ? "language.pl" : "language.en");
+}
+
+function themeModeLabel(locale: Locale, themeMode: ThemeMode): string {
+  switch (themeMode) {
+    case "light":
+      return t(locale, "theme.light");
+    case "dark":
+      return t(locale, "theme.dark");
+    case "auto":
+      return t(locale, "theme.auto");
+  }
 }
 
 function createPreviewPreset(
@@ -635,7 +810,7 @@ function createPreviewPreset(
     height: number;
     refreshRate: number;
   },
-  monitor: MonitorInfo
+  monitor: MonitorInfo,
 ): Preset {
   const now = new Date().toISOString();
   return {
@@ -647,10 +822,10 @@ function createPreviewPreset(
     height: input.height,
     refreshRate: input.refreshRate,
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
   };
 }
 
-function toMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Wystąpił nieznany błąd.";
+function toMessage(error: unknown, locale: Locale): string {
+  return error instanceof Error ? error.message : t(locale, "error.unknown");
 }

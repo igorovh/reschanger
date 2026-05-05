@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { formatMode, type Locale, t } from "../../shared/i18n";
 import type { MonitorInfo } from "./types";
 
 type BridgeListResponse = {
@@ -10,6 +11,11 @@ type BridgeListResponse = {
 type BridgeApplyResponse = {
   ok: boolean;
   error?: string;
+  reason?:
+    | "applyFailed"
+    | "missingMonitorId"
+    | "readCurrentFailed"
+    | "testRejected";
   code?: number;
 };
 
@@ -145,13 +151,13 @@ public static class DisplayBridge
     {
         if (String.IsNullOrWhiteSpace(deviceName))
         {
-            return ErrorJson("Brak identyfikatora monitora.", -100);
+            return ErrorJson("Brak identyfikatora monitora.", "missingMonitorId", -100);
         }
 
         DEVMODE mode = CreateDevMode();
         if (!EnumDisplaySettings(deviceName, ENUM_CURRENT_SETTINGS, ref mode))
         {
-            return ErrorJson("Nie można odczytać bieżącego trybu monitora " + deviceName + ".", -101);
+            return ErrorJson("Nie można odczytać bieżącego trybu monitora " + deviceName + ".", "readCurrentFailed", -101);
         }
 
         mode.dmPelsWidth = width;
@@ -162,13 +168,13 @@ public static class DisplayBridge
         int testResult = ChangeDisplaySettingsEx(deviceName, ref mode, IntPtr.Zero, CDS_TEST, IntPtr.Zero);
         if (testResult != DISP_CHANGE_SUCCESSFUL)
         {
-            return ErrorJson("Windows odrzucił test trybu " + width + "x" + height + " @ " + refreshRate + " Hz.", testResult);
+            return ErrorJson("Windows odrzucił test trybu " + width + "x" + height + " @ " + refreshRate + " Hz.", "testRejected", testResult);
         }
 
         int applyResult = ChangeDisplaySettingsEx(deviceName, ref mode, IntPtr.Zero, CDS_UPDATEREGISTRY, IntPtr.Zero);
         if (applyResult != DISP_CHANGE_SUCCESSFUL)
         {
-            return ErrorJson("Nie udało się zastosować trybu " + width + "x" + height + " @ " + refreshRate + " Hz.", applyResult);
+            return ErrorJson("Nie udało się zastosować trybu " + width + "x" + height + " @ " + refreshRate + " Hz.", "applyFailed", applyResult);
         }
 
         return "{\"ok\":true}";
@@ -267,9 +273,9 @@ public static class DisplayBridge
         builder.Append("\"");
     }
 
-    private static string ErrorJson(string message, int code)
+    private static string ErrorJson(string message, string reason, int code)
     {
-        return "{\"ok\":false,\"error\":\"" + JsonEscape(message) + "\",\"code\":" + code + "}";
+        return "{\"ok\":false,\"error\":\"" + JsonEscape(message) + "\",\"reason\":\"" + JsonEscape(reason) + "\",\"code\":" + code + "}";
     }
 
     private static string JsonEscape(string value)
@@ -289,14 +295,15 @@ public static class DisplayBridge
 }
 `;
 
-export async function listMonitors(): Promise<MonitorInfo[]> {
-  ensureWindows();
+export async function listMonitors(locale: Locale): Promise<MonitorInfo[]> {
+  ensureWindows(locale);
   const response = await runBridge<BridgeListResponse>(
-    "[DisplayBridge]::ListJson()"
+    "[DisplayBridge]::ListJson()",
+    locale,
   );
 
   if (!response.ok) {
-    throw new Error(response.error ?? "Nie udało się pobrać listy monitorów.");
+    throw new Error(t(locale, "display.listFailed"));
   }
 
   return response.monitors ?? [];
@@ -306,27 +313,33 @@ export async function applyDisplayMode(
   deviceName: string,
   width: number,
   height: number,
-  refreshRate: number
+  refreshRate: number,
+  locale: Locale,
 ): Promise<void> {
-  ensureWindows();
+  ensureWindows(locale);
 
   const response = await runBridge<BridgeApplyResponse>(
-    `[DisplayBridge]::ApplyJson('${escapePowerShellSingleQuotedString(deviceName)}', ${width}, ${height}, ${refreshRate})`
+    `[DisplayBridge]::ApplyJson('${escapePowerShellSingleQuotedString(deviceName)}', ${width}, ${height}, ${refreshRate})`,
+    locale,
   );
 
   if (!response.ok) {
     throw new Error(
-      response.error ??
-        `Nie udało się zastosować trybu. Kod Windows: ${response.code ?? "unknown"}`
+      toApplyErrorMessage(
+        response,
+        deviceName,
+        width,
+        height,
+        refreshRate,
+        locale,
+      ),
     );
   }
 }
 
-function ensureWindows(): void {
+function ensureWindows(locale: Locale): void {
   if (process.platform !== "win32") {
-    throw new Error(
-      "Zmiana rozdzielczości jest obsługiwana tylko w systemie Windows."
-    );
+    throw new Error(t(locale, "display.windowsOnly"));
   }
 }
 
@@ -334,32 +347,55 @@ function escapePowerShellSingleQuotedString(value: string): string {
   return value.replaceAll("'", "''");
 }
 
-async function runBridge<T>(invocation: string): Promise<T> {
+async function runBridge<T>(invocation: string, locale: Locale): Promise<T> {
   const script = [
     "$ErrorActionPreference = 'Stop'",
     `Add-Type -TypeDefinition @'\n${WINDOWS_DISPLAY_BRIDGE}\n'@`,
-    invocation
+    invocation,
   ].join("\n\n");
 
-  const stdout = await runPowerShell(script);
+  const stdout = await runPowerShell(script, locale);
   const trimmed = stdout.trim();
 
   if (trimmed.length === 0) {
-    throw new Error("PowerShell nie zwrócił wyniku.");
+    throw new Error(t(locale, "display.emptyPowerShell"));
   }
 
   return JSON.parse(trimmed) as T;
 }
 
-function runPowerShell(script: string): Promise<string> {
+function toApplyErrorMessage(
+  response: BridgeApplyResponse,
+  deviceName: string,
+  width: number,
+  height: number,
+  refreshRate: number,
+  locale: Locale,
+): string {
+  const mode = formatMode(width, height, refreshRate);
+  const code = response.code ?? "unknown";
+
+  switch (response.reason) {
+    case "missingMonitorId":
+      return t(locale, "display.missingMonitorId");
+    case "readCurrentFailed":
+      return t(locale, "display.readCurrentFailed", { deviceName });
+    case "testRejected":
+      return t(locale, "display.testRejected", { code, mode });
+    default:
+      return t(locale, "display.applyFailed", { code, mode });
+  }
+}
+
+function runPowerShell(script: string, locale: Locale): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(
       "powershell.exe",
       ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "-"],
       {
         windowsHide: true,
-        stdio: ["pipe", "pipe", "pipe"]
-      }
+        stdio: ["pipe", "pipe", "pipe"],
+      },
     );
 
     let stdout = "";
@@ -388,8 +424,9 @@ function runPowerShell(script: string): Promise<string> {
 
       reject(
         new Error(
-          stderr.trim() || `PowerShell zakończył pracę z kodem ${code}.`
-        )
+          stderr.trim() ||
+            t(locale, "display.powerShellFailed", { code: code ?? "unknown" }),
+        ),
       );
     });
 

@@ -1,6 +1,14 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { app } from "electron";
+import {
+  DEFAULT_LOCALE,
+  DEFAULT_THEME_MODE,
+  isLocale,
+  isThemeMode,
+  type Locale,
+  type ThemeMode,
+} from "../shared/i18n";
 import type { AppSettings, Preset } from "../shared/types";
 
 const SETTINGS_VERSION = 1;
@@ -8,7 +16,9 @@ const SETTINGS_VERSION = 1;
 const DEFAULT_SETTINGS: AppSettings = {
   version: SETTINGS_VERSION,
   autostart: false,
-  presets: []
+  language: DEFAULT_LOCALE,
+  themeMode: DEFAULT_THEME_MODE,
+  presets: [],
 };
 
 export class SettingsStore {
@@ -50,7 +60,25 @@ export class SettingsStore {
   async setAutostart(enabled: boolean): Promise<AppSettings> {
     this.settings = {
       ...this.settings,
-      autostart: enabled
+      autostart: enabled,
+    };
+    await this.save();
+    return this.getSettings();
+  }
+
+  async setLanguage(language: Locale): Promise<AppSettings> {
+    this.settings = {
+      ...this.settings,
+      language,
+    };
+    await this.save();
+    return this.getSettings();
+  }
+
+  async setThemeMode(themeMode: ThemeMode): Promise<AppSettings> {
+    this.settings = {
+      ...this.settings,
+      themeMode,
     };
     await this.save();
     return this.getSettings();
@@ -59,7 +87,7 @@ export class SettingsStore {
   async setPresets(presets: Preset[]): Promise<AppSettings> {
     this.settings = {
       ...this.settings,
-      presets
+      presets,
     };
     await this.save();
     return this.getSettings();
@@ -71,7 +99,7 @@ export class SettingsStore {
     await writeFile(
       temporaryPath,
       `${JSON.stringify(this.settings, null, 2)}\n`,
-      "utf8"
+      "utf8",
     );
     await rename(temporaryPath, this.filePath);
   }
@@ -93,7 +121,11 @@ function normalizeSettings(value: unknown): AppSettings {
   return {
     version: SETTINGS_VERSION,
     autostart: typeof value.autostart === "boolean" ? value.autostart : false,
-    presets: Array.isArray(value.presets) ? value.presets.filter(isPreset) : []
+    language: isLocale(value.language) ? value.language : DEFAULT_LOCALE,
+    themeMode: isThemeMode(value.themeMode)
+      ? value.themeMode
+      : DEFAULT_THEME_MODE,
+    presets: Array.isArray(value.presets) ? value.presets.filter(isPreset) : [],
   };
 }
 

@@ -1,10 +1,11 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { Locale, ThemeMode } from "../shared/i18n";
 import type {
   AppErrorPayload,
   ApplyPresetResult,
   AppState,
   CreatePresetInput,
-  UpdatePresetInput
+  UpdatePresetInput,
 } from "../shared/types";
 
 export type ReschangerApi = {
@@ -15,9 +16,11 @@ export type ReschangerApi = {
   deletePreset: (id: string) => Promise<AppState>;
   applyPreset: (id: string) => Promise<AppState>;
   setAutostart: (enabled: boolean) => Promise<AppState>;
+  setLanguage: (language: Locale) => Promise<AppState>;
+  setThemeMode: (themeMode: ThemeMode) => Promise<AppState>;
   onStateChanged: (callback: (state: AppState) => void) => () => void;
   onPresetApplied: (
-    callback: (result: ApplyPresetResult) => void
+    callback: (result: ApplyPresetResult) => void,
   ) => () => void;
   onAppError: (callback: (error: AppErrorPayload) => void) => () => void;
 };
@@ -36,16 +39,20 @@ const api: ReschangerApi = {
     ipcRenderer.invoke("presets:apply", id) as Promise<AppState>,
   setAutostart: (enabled) =>
     ipcRenderer.invoke("autostart:set", enabled) as Promise<AppState>,
+  setLanguage: (language) =>
+    ipcRenderer.invoke("language:set", language) as Promise<AppState>,
+  setThemeMode: (themeMode) =>
+    ipcRenderer.invoke("theme:set", themeMode) as Promise<AppState>,
   onStateChanged: (callback) => subscribe("state:changed", callback),
   onPresetApplied: (callback) => subscribe("preset:applied", callback),
-  onAppError: (callback) => subscribe("app:error", callback)
+  onAppError: (callback) => subscribe("app:error", callback),
 };
 
 contextBridge.exposeInMainWorld("reschanger", api);
 
 function subscribe<T>(
   channel: string,
-  callback: (payload: T) => void
+  callback: (payload: T) => void,
 ): () => void {
   const listener = (_event: Electron.IpcRendererEvent, payload: T) => {
     callback(payload);

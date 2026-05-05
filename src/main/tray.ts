@@ -4,8 +4,9 @@ import {
   Menu,
   Notification,
   nativeImage,
-  Tray
+  Tray,
 } from "electron";
+import { formatMode, type Locale, t } from "../shared/i18n";
 import type { AppState } from "../shared/types";
 
 export type TrayControllerOptions = {
@@ -40,48 +41,53 @@ export class TrayController {
     }
 
     const state = this.options.getState();
+    const locale = state.settings.language;
     const monitorIds = new Set(state.monitors.map((monitor) => monitor.id));
     const presetItems = state.settings.presets.map((preset) => ({
-      label: `${preset.name} - ${preset.monitorName} - ${preset.width}x${preset.height} @ ${preset.refreshRate} Hz`,
+      label: t(locale, "preset.trayLabel", {
+        name: preset.name,
+        monitorName: preset.monitorName,
+        mode: formatMode(preset.width, preset.height, preset.refreshRate),
+      }),
       enabled: monitorIds.has(preset.monitorId),
       click: async () => {
         try {
           await this.options.applyPreset(preset.id);
         } catch (error) {
-          showTrayError(error);
+          showTrayError(error, locale);
         }
-      }
+      },
     }));
 
     const menu = Menu.buildFromTemplate([
       {
-        label: "Otwórz konfigurację",
-        click: () => this.options.showWindow()
+        label: t(locale, "tray.openConfig"),
+        click: () => this.options.showWindow(),
       },
       { type: "separator" },
       ...(presetItems.length > 0
         ? presetItems
         : [
             {
-              label: "Brak zapisanych presetów",
-              enabled: false
-            }
+              label: t(locale, "tray.noPresets"),
+              enabled: false,
+            },
           ]),
       { type: "separator" },
       {
-        label: "Odśwież monitory",
+        label: t(locale, "action.refreshMonitors"),
         click: async () => {
           try {
             await this.options.refreshMonitors();
           } catch (error) {
-            showTrayError(error);
+            showTrayError(error, locale);
           }
-        }
+        },
       },
       {
-        label: "Zakończ",
-        click: () => this.options.quit()
-      }
+        label: t(locale, "tray.quit"),
+        click: () => this.options.quit(),
+      },
     ]);
 
     this.tray.setContextMenu(menu);
@@ -95,7 +101,7 @@ export class TrayController {
 
 export function attachWindowHideToTray(
   window: BrowserWindow,
-  getShouldQuit: () => boolean
+  getShouldQuit: () => boolean,
 ): void {
   window.on("close", (event) => {
     if (getShouldQuit()) {
@@ -111,7 +117,7 @@ function createTrayIcon(): Electron.NativeImage {
   const image = nativeImage.createFromBitmap(createIconBitmap(), {
     width: 16,
     height: 16,
-    scaleFactor: 1
+    scaleFactor: 1,
   });
 
   image.setTemplateImage(false);
@@ -154,14 +160,14 @@ function createIconBitmap(): Buffer {
   return buffer;
 }
 
-function showTrayError(error: unknown): void {
+function showTrayError(error: unknown, locale: Locale): void {
   const message =
-    error instanceof Error ? error.message : "Wystąpił nieznany błąd.";
+    error instanceof Error ? error.message : t(locale, "error.unknown");
 
   if (Notification.isSupported()) {
     new Notification({
       title: "reschanger",
-      body: message
+      body: message,
     }).show();
     return;
   }
