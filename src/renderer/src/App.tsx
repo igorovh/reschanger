@@ -10,7 +10,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_LOCALE,
   DEFAULT_THEME_MODE,
@@ -38,6 +38,15 @@ type FormState = {
   manualWidth: number;
   manualHeight: number;
   manualRefreshRate: number;
+};
+
+type PresetGroup = {
+  key: string;
+  title: string;
+  subtitle: string;
+  currentMode: string | null;
+  presets: Preset[];
+  isMonitorAvailable: boolean;
 };
 
 const emptyState: AppState = {
@@ -76,8 +85,13 @@ export function App(): React.JSX.Element {
     t(DEFAULT_LOCALE, "notice.loadingSettings"),
   );
   const [error, setError] = useState<string | null>(null);
+  const settingsRef = useRef(state.settings);
   const locale = state.settings.language;
   const themeMode = state.settings.themeMode;
+
+  useEffect(() => {
+    settingsRef.current = state.settings;
+  }, [state.settings]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
@@ -150,6 +164,7 @@ export function App(): React.JSX.Element {
       state.monitors.find((monitor) => monitor.id === form.monitorId) ?? null,
     [form.monitorId, state.monitors],
   );
+  const selectedMonitorId = selectedMonitor?.id ?? null;
 
   const selectedMonitorIndex = selectedMonitor
     ? state.monitors.findIndex((monitor) => monitor.id === selectedMonitor.id)
@@ -164,36 +179,20 @@ export function App(): React.JSX.Element {
       )
     : "";
 
-  const selectedMonitorDisplayName = selectedMonitor
-    ? getMonitorDisplayName(
-        locale,
-        state.settings,
-        selectedMonitor,
-        selectedMonitorIndex >= 0 ? selectedMonitorIndex : 0,
-      )
-    : "";
-
   useEffect(() => {
-    if (!selectedMonitor) {
+    if (!selectedMonitorId) {
       setMonitorAliasName("");
       return;
     }
 
     setMonitorAliasName(
-      getMonitorAliasName(state.settings, selectedMonitor.id),
+      getMonitorAliasName(settingsRef.current, selectedMonitorId),
     );
-  }, [selectedMonitor, state.settings]);
+  }, [selectedMonitorId]);
 
-  const selectedMonitorPresets = useMemo(
-    () =>
-      selectedMonitor
-        ? state.settings.presets.filter(
-            (preset) =>
-              findMonitorForPreset(state.monitors, state.settings, preset)
-                ?.id === selectedMonitor.id,
-          )
-        : [],
-    [selectedMonitor, state.monitors, state.settings],
+  const presetGroups = useMemo(
+    () => groupPresetsByMonitor(locale, state),
+    [locale, state],
   );
 
   const resolutionOptions = useMemo(
@@ -499,6 +498,32 @@ export function App(): React.JSX.Element {
           </button>
         </div>
       </article>
+    );
+  }
+
+  function renderPresetGroup(group: PresetGroup): React.JSX.Element {
+    return (
+      <section
+        className={`monitor-preset-group${
+          group.isMonitorAvailable ? "" : " unavailable"
+        }`}
+        key={group.key}
+      >
+        <div className="monitor-preset-heading">
+          <div>
+            <h3>{group.title}</h3>
+            <span>{group.subtitle}</span>
+          </div>
+          {group.currentMode ? (
+            <span className="monitor-current-mode">{group.currentMode}</span>
+          ) : null}
+        </div>
+        <div className="preset-list">
+          {group.presets.map((preset) =>
+            renderPresetItem(preset, group.isMonitorAvailable),
+          )}
+        </div>
+      </section>
     );
   }
 
@@ -868,24 +893,14 @@ export function App(): React.JSX.Element {
         <section className="panel">
           <div className="panel-heading">
             <Save size={20} />
-            <h2>
-              {selectedMonitor
-                ? `${t(locale, "preset.savedPresets")} - ${selectedMonitorDisplayName}`
-                : t(locale, "preset.savedPresets")}
-            </h2>
+            <h2>{t(locale, "preset.savedPresets")}</h2>
           </div>
 
-          <div className="preset-list">
-            {!selectedMonitor ? (
-              <div className="empty-state">{t(locale, "empty.noMonitors")}</div>
-            ) : selectedMonitorPresets.length > 0 ? (
-              selectedMonitorPresets.map((preset) =>
-                renderPresetItem(preset, true),
-              )
+          <div className="monitor-preset-list">
+            {presetGroups.length > 0 ? (
+              presetGroups.map(renderPresetGroup)
             ) : (
-              <div className="empty-state">
-                {t(locale, "preset.noMonitorPresets")}
-              </div>
+              <div className="empty-state">{t(locale, "empty.noPresets")}</div>
             )}
           </div>
         </section>
@@ -1052,6 +1067,62 @@ function parseDisplayNumber(deviceName: string): number | null {
   return Number.isInteger(value) && value > 0 ? value : null;
 }
 
+function groupPresetsByMonitor(locale: Locale, state: AppState): PresetGroup[] {
+  const groups: PresetGroup[] = [];
+  const assignedPresetIds = new Set<string>();
+
+  state.monitors.forEach((monitor, index) => {
+    const presets = state.settings.presets.filter((preset) => {
+      const presetMonitor = findMonitorForPreset(
+        state.monitors,
+        state.settings,
+        preset,
+      );
+      return presetMonitor?.id === monitor.id;
+    });
+
+    if (presets.length === 0) {
+      return;
+    }
+
+    for (const preset of presets) {
+      assignedPresetIds.add(preset.id);
+    }
+
+    groups.push({
+      key: monitor.id,
+      title: getMonitorDisplayName(locale, state.settings, monitor, index),
+      subtitle: monitor.name,
+      currentMode: t(locale, "form.currentMode", {
+        mode: formatMode(
+          monitor.current.width,
+          monitor.current.height,
+          monitor.current.refreshRate,
+        ),
+      }),
+      presets,
+      isMonitorAvailable: true,
+    });
+  });
+
+  const unavailablePresets = state.settings.presets.filter(
+    (preset) => !assignedPresetIds.has(preset.id),
+  );
+
+  if (unavailablePresets.length > 0) {
+    groups.push({
+      key: "unavailable",
+      title: t(locale, "preset.unavailableGroup"),
+      subtitle: t(locale, "preset.monitorUnavailable"),
+      currentMode: null,
+      presets: unavailablePresets,
+      isMonitorAvailable: false,
+    });
+  }
+
+  return groups;
+}
+
 function findMonitorForPreset(
   monitors: MonitorInfo[],
   settings: AppSettings,
@@ -1061,6 +1132,10 @@ function findMonitorForPreset(
     monitors.find((monitor) => monitor.id === preset.monitorId) ?? null;
   if (exactMonitor) {
     return exactMonitor;
+  }
+
+  if (!isLegacyDisplayDeviceName(preset.monitorId)) {
+    return null;
   }
 
   const binding = settings.monitorBindings.find(
@@ -1076,6 +1151,10 @@ function findMonitorForPreset(
   return (
     monitors.find((monitor) => monitor.deviceName === preset.monitorId) ?? null
   );
+}
+
+function isLegacyDisplayDeviceName(value: string): boolean {
+  return /^\\\\\.\\DISPLAY\d+$/i.test(value);
 }
 
 function toMessage(error: unknown, locale: Locale): string {

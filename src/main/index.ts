@@ -240,10 +240,9 @@ async function refreshMonitorsInternal(
   shouldNotifyRenderer: boolean,
 ): Promise<void> {
   try {
-    const previousMonitorBindings = store.getSettings().monitorBindings;
     monitors = await listMonitors(currentLocale());
     await rememberMonitorBindings(monitors);
-    await migrateLegacyPresetMonitorIds(previousMonitorBindings);
+    await migrateLegacyPresetMonitorIds(store.getSettings().monitorBindings);
   } catch (error) {
     monitors = [];
     const payload = toAppError(
@@ -361,7 +360,25 @@ function getMonitorDisplayName(monitor: MonitorInfo): string {
     .getSettings()
     .monitorAliases.find((item) => item.monitorId === monitor.id);
 
-  return alias?.name.trim() || monitor.name;
+  return (
+    alias?.name.trim() ||
+    t(currentLocale(), "monitor.groupTitle", {
+      number: getMonitorSortOrder(monitor),
+    })
+  );
+}
+
+function getMonitorSortOrder(monitor: MonitorInfo): number {
+  const settings = store.getSettings();
+  const rememberedBinding = settings.monitorBindings.find(
+    (binding) => binding.monitorId === monitor.id,
+  );
+  const rememberedNumber = rememberedBinding
+    ? parseDisplayNumber(rememberedBinding.deviceName)
+    : null;
+  const fallbackIndex = monitors.findIndex((item) => item.id === monitor.id);
+
+  return rememberedNumber ?? (fallbackIndex >= 0 ? fallbackIndex + 1 : 1);
 }
 
 async function rememberMonitorBindings(
@@ -400,9 +417,9 @@ async function rememberMonitorBindings(
 }
 
 async function migrateLegacyPresetMonitorIds(
-  previousMonitorBindings: MonitorBinding[],
+  bindings: MonitorBinding[],
 ): Promise<void> {
-  if (previousMonitorBindings.length === 0) {
+  if (bindings.length === 0) {
     return;
   }
 
@@ -414,10 +431,7 @@ async function migrateLegacyPresetMonitorIds(
       return preset;
     }
 
-    const monitor = findMonitorByLegacyDeviceName(
-      preset.monitorId,
-      previousMonitorBindings,
-    );
+    const monitor = findMonitorByLegacyDeviceName(preset.monitorId, bindings);
     if (!monitor) {
       return preset;
     }
@@ -426,7 +440,7 @@ async function migrateLegacyPresetMonitorIds(
     return {
       ...preset,
       monitorId: monitor.id,
-      monitorName: monitor.name,
+      monitorName: getMonitorDisplayName(monitor),
       updatedAt: now,
     };
   });
@@ -476,6 +490,16 @@ function findMonitorByLegacyDeviceName(
 
 function isLegacyDisplayDeviceName(value: string): boolean {
   return /^\\\\\.\\DISPLAY\d+$/i.test(value);
+}
+
+function parseDisplayNumber(deviceName: string): number | null {
+  const match = /DISPLAY(\d+)$/i.exec(deviceName);
+  if (!match?.[1]) {
+    return null;
+  }
+
+  const value = Number(match[1]);
+  return Number.isInteger(value) && value > 0 ? value : null;
 }
 
 function validateMode(
