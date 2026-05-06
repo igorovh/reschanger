@@ -14,6 +14,7 @@ export type TrayControllerOptions = {
   showWindow: () => void;
   refreshMonitors: () => Promise<void>;
   applyPreset: (presetId: string) => Promise<void>;
+  canApplyPreset: (presetId: string) => boolean;
   quit: () => void;
 };
 
@@ -42,14 +43,13 @@ export class TrayController {
 
     const state = this.options.getState();
     const locale = state.settings.language;
-    const monitorIds = new Set(state.monitors.map((monitor) => monitor.id));
     const presetItems = state.settings.presets.map((preset) => ({
       label: t(locale, "preset.trayLabel", {
         name: preset.name,
         monitorName: preset.monitorName,
         mode: formatMode(preset.width, preset.height, preset.refreshRate),
       }),
-      enabled: monitorIds.has(preset.monitorId),
+      enabled: this.options.canApplyPreset(preset.id),
       click: async () => {
         try {
           await this.options.applyPreset(preset.id);

@@ -9,15 +9,16 @@ import {
   type Locale,
   type ThemeMode,
 } from "../shared/i18n";
-import type { AppSettings, Preset } from "../shared/types";
+import type { AppSettings, MonitorBinding, Preset } from "../shared/types";
 
-const SETTINGS_VERSION = 1;
+const SETTINGS_VERSION = 2;
 
 const DEFAULT_SETTINGS: AppSettings = {
   version: SETTINGS_VERSION,
   autostart: false,
   language: DEFAULT_LOCALE,
   themeMode: DEFAULT_THEME_MODE,
+  monitorBindings: [],
   presets: [],
 };
 
@@ -84,6 +85,17 @@ export class SettingsStore {
     return this.getSettings();
   }
 
+  async setMonitorBindings(
+    monitorBindings: MonitorBinding[],
+  ): Promise<AppSettings> {
+    this.settings = {
+      ...this.settings,
+      monitorBindings,
+    };
+    await this.save();
+    return this.getSettings();
+  }
+
   async setPresets(presets: Preset[]): Promise<AppSettings> {
     this.settings = {
       ...this.settings,
@@ -125,8 +137,24 @@ function normalizeSettings(value: unknown): AppSettings {
     themeMode: isThemeMode(value.themeMode)
       ? value.themeMode
       : DEFAULT_THEME_MODE,
+    monitorBindings: Array.isArray(value.monitorBindings)
+      ? value.monitorBindings.filter(isMonitorBinding)
+      : [],
     presets: Array.isArray(value.presets) ? value.presets.filter(isPreset) : [],
   };
+}
+
+function isMonitorBinding(value: unknown): value is MonitorBinding {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    typeof value.deviceName === "string" &&
+    typeof value.monitorId === "string" &&
+    typeof value.monitorName === "string" &&
+    typeof value.updatedAt === "string"
+  );
 }
 
 function isPreset(value: unknown): value is Preset {

@@ -14,6 +14,13 @@ export type MonitorInfo = {
   modes: DisplayMode[];
 };
 
+export type MonitorBinding = {
+  deviceName: string;
+  monitorId: string;
+  monitorName: string;
+  updatedAt: string;
+};
+
 export type Preset = {
   id: string;
   name: string;
@@ -27,10 +34,11 @@ export type Preset = {
 };
 
 export type AppSettings = {
-  version: 1;
+  version: 2;
   autostart: boolean;
   language: Locale;
   themeMode: ThemeMode;
+  monitorBindings: MonitorBinding[];
   presets: Preset[];
 };
 

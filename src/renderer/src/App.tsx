@@ -35,10 +35,11 @@ type FormState = {
 
 const emptyState: AppState = {
   settings: {
-    version: 1,
+    version: 2,
     autostart: false,
     language: DEFAULT_LOCALE,
     themeMode: DEFAULT_THEME_MODE,
+    monitorBindings: [],
     presets: [],
   },
   monitors: [],
@@ -302,11 +303,11 @@ export function App(): React.JSX.Element {
   }
 
   function editPreset(preset: Preset): void {
-    const monitor = state.monitors.find((item) => item.id === preset.monitorId);
+    const monitor = findMonitorForPreset(state.monitors, preset);
     setEditingPresetId(preset.id);
     setForm({
       name: preset.name,
-      monitorId: preset.monitorId,
+      monitorId: monitor?.id ?? preset.monitorId,
       resolution: `${preset.width}x${preset.height}`,
       refreshRate: preset.refreshRate,
       manualMode: !monitor?.modes.some(
@@ -664,9 +665,8 @@ export function App(): React.JSX.Element {
               <div className="empty-state">{t(locale, "empty.noPresets")}</div>
             ) : (
               state.settings.presets.map((preset) => {
-                const isMonitorAvailable = state.monitors.some(
-                  (monitor) => monitor.id === preset.monitorId,
-                );
+                const isMonitorAvailable =
+                  findMonitorForPreset(state.monitors, preset) !== null;
 
                 return (
                   <article className="preset-item" key={preset.id}>
@@ -824,6 +824,17 @@ function createPreviewPreset(
     createdAt: now,
     updatedAt: now,
   };
+}
+
+function findMonitorForPreset(
+  monitors: MonitorInfo[],
+  preset: Preset,
+): MonitorInfo | null {
+  return (
+    monitors.find((monitor) => monitor.id === preset.monitorId) ??
+    monitors.find((monitor) => monitor.deviceName === preset.monitorId) ??
+    null
+  );
 }
 
 function toMessage(error: unknown, locale: Locale): string {

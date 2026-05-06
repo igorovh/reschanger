@@ -14,6 +14,7 @@ import type {
   ApplyPresetResult,
   AppState,
   CreatePresetInput,
+  MonitorBinding,
   MonitorInfo,
   Preset,
   UpdatePresetInput,
@@ -49,6 +50,7 @@ if (!singleInstanceLock) {
       showWindow: showMainWindow,
       refreshMonitors: async () => refreshMonitorsInternal(true),
       applyPreset: applyPresetById,
+      canApplyPreset: canApplyPresetById,
       quit: quitApp,
     });
     trayController.create();
@@ -212,7 +214,10 @@ async function refreshMonitorsInternal(
   shouldNotifyRenderer: boolean,
 ): Promise<void> {
   try {
+    const previousMonitorBindings = store.getSettings().monitorBindings;
     monitors = await listMonitors(currentLocale());
+    await rememberMonitorBindings(monitors);
+    await migrateLegacyPresetMonitorIds(previousMonitorBindings);
   } catch (error) {
     monitors = [];
     const payload = toAppError(
@@ -236,7 +241,7 @@ async function applyPresetById(id: string): Promise<void> {
     throw new Error(t(currentLocale(), "error.presetMissing"));
   }
 
-  const monitor = monitors.find((item) => item.id === preset.monitorId);
+  const monitor = findMonitorForPreset(preset);
   if (!monitor) {
     throw new Error(
       t(currentLocale(), "error.monitorUnavailable", { name: preset.name }),
@@ -265,6 +270,11 @@ async function applyPresetById(id: string): Promise<void> {
   mainWindow?.webContents.send("preset:applied", result);
 }
 
+function canApplyPresetById(id: string): boolean {
+  const preset = store.getSettings().presets.find((item) => item.id === id);
+  return preset !== undefined && findMonitorForPreset(preset) !== null;
+}
+
 function buildPreset(input: CreatePresetInput, previous?: Preset): Preset {
   const monitor = monitors.find((item) => item.id === input.monitorId);
   if (!monitor) {
@@ -290,6 +300,120 @@ function buildPreset(input: CreatePresetInput, previous?: Preset): Preset {
     createdAt: previous?.createdAt ?? now,
     updatedAt: now,
   };
+}
+
+async function rememberMonitorBindings(
+  detectedMonitors: MonitorInfo[],
+): Promise<void> {
+  const settings = store.getSettings();
+  const bindingsByDeviceName = new Map(
+    settings.monitorBindings.map((binding) => [binding.deviceName, binding]),
+  );
+  let changed = false;
+  const now = new Date().toISOString();
+
+  for (const monitor of detectedMonitors) {
+    if (bindingsByDeviceName.has(monitor.deviceName)) {
+      continue;
+    }
+
+    bindingsByDeviceName.set(monitor.deviceName, {
+      deviceName: monitor.deviceName,
+      monitorId: monitor.id,
+      monitorName: monitor.name,
+      updatedAt: now,
+    });
+    changed = true;
+  }
+
+  if (!changed) {
+    return;
+  }
+
+  await store.setMonitorBindings(
+    Array.from(bindingsByDeviceName.values()).sort((left, right) =>
+      left.deviceName.localeCompare(right.deviceName),
+    ),
+  );
+}
+
+async function migrateLegacyPresetMonitorIds(
+  previousMonitorBindings: MonitorBinding[],
+): Promise<void> {
+  if (previousMonitorBindings.length === 0) {
+    return;
+  }
+
+  const settings = store.getSettings();
+  const now = new Date().toISOString();
+  let changed = false;
+  const migratedPresets = settings.presets.map((preset) => {
+    if (!isLegacyDisplayDeviceName(preset.monitorId)) {
+      return preset;
+    }
+
+    const monitor = findMonitorByLegacyDeviceName(
+      preset.monitorId,
+      previousMonitorBindings,
+    );
+    if (!monitor) {
+      return preset;
+    }
+
+    changed = true;
+    return {
+      ...preset,
+      monitorId: monitor.id,
+      monitorName: monitor.name,
+      updatedAt: now,
+    };
+  });
+
+  if (changed) {
+    await store.setPresets(migratedPresets);
+  }
+}
+
+function findMonitorForPreset(preset: Preset): MonitorInfo | null {
+  const exactMonitor = monitors.find((item) => item.id === preset.monitorId);
+  if (exactMonitor) {
+    return exactMonitor;
+  }
+
+  if (!isLegacyDisplayDeviceName(preset.monitorId)) {
+    return null;
+  }
+
+  return (
+    findMonitorByLegacyDeviceName(
+      preset.monitorId,
+      store.getSettings().monitorBindings,
+    ) ??
+    monitors.find((item) => item.deviceName === preset.monitorId) ??
+    null
+  );
+}
+
+function findMonitorByLegacyDeviceName(
+  deviceName: string,
+  bindings: MonitorBinding[],
+): MonitorInfo | null {
+  for (const binding of bindings) {
+    if (binding.deviceName !== deviceName) {
+      continue;
+    }
+
+    const monitor = monitors.find((item) => item.id === binding.monitorId);
+    if (monitor) {
+      return monitor;
+    }
+  }
+
+  return null;
+}
+
+function isLegacyDisplayDeviceName(value: string): boolean {
+  return /^\\\\\.\\DISPLAY\d+$/i.test(value);
 }
 
 function validateMode(
