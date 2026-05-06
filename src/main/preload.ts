@@ -1,10 +1,11 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron";
 import type { Locale, ThemeMode } from "../shared/i18n";
 import type {
   AppErrorPayload,
   ApplyPresetResult,
   AppState,
   CreatePresetInput,
+  SetMonitorAliasInput,
   UpdatePresetInput,
 } from "../shared/types";
 
@@ -15,7 +16,9 @@ export type ReschangerApi = {
   updatePreset: (id: string, input: UpdatePresetInput) => Promise<AppState>;
   deletePreset: (id: string) => Promise<AppState>;
   applyPreset: (id: string) => Promise<AppState>;
+  setMonitorAlias: (input: SetMonitorAliasInput) => Promise<AppState>;
   setAutostart: (enabled: boolean) => Promise<AppState>;
+  setRestartExplorerAfterApply: (enabled: boolean) => Promise<AppState>;
   setLanguage: (language: Locale) => Promise<AppState>;
   setThemeMode: (themeMode: ThemeMode) => Promise<AppState>;
   onStateChanged: (callback: (state: AppState) => void) => () => void;
@@ -37,8 +40,12 @@ const api: ReschangerApi = {
     ipcRenderer.invoke("presets:delete", id) as Promise<AppState>,
   applyPreset: (id) =>
     ipcRenderer.invoke("presets:apply", id) as Promise<AppState>,
+  setMonitorAlias: (input) =>
+    ipcRenderer.invoke("monitors:alias:set", input) as Promise<AppState>,
   setAutostart: (enabled) =>
     ipcRenderer.invoke("autostart:set", enabled) as Promise<AppState>,
+  setRestartExplorerAfterApply: (enabled) =>
+    ipcRenderer.invoke("explorer-restart:set", enabled) as Promise<AppState>,
   setLanguage: (language) =>
     ipcRenderer.invoke("language:set", language) as Promise<AppState>,
   setThemeMode: (themeMode) =>
@@ -54,7 +61,7 @@ function subscribe<T>(
   channel: string,
   callback: (payload: T) => void,
 ): () => void {
-  const listener = (_event: Electron.IpcRendererEvent, payload: T) => {
+  const listener = (_event: IpcRendererEvent, payload: T) => {
     callback(payload);
   };
 

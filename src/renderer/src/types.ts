@@ -8,5 +8,6 @@ export type {
   DisplayMode,
   MonitorInfo,
   Preset,
+  SetMonitorAliasInput,
   UpdatePresetInput,
 } from "../../shared/types";

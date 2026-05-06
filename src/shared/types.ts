@@ -14,6 +14,19 @@ export type MonitorInfo = {
   modes: DisplayMode[];
 };
 
+export type MonitorBinding = {
+  deviceName: string;
+  monitorId: string;
+  monitorName: string;
+  updatedAt: string;
+};
+
+export type MonitorAlias = {
+  monitorId: string;
+  name: string;
+  updatedAt: string;
+};
+
 export type Preset = {
   id: string;
   name: string;
@@ -27,10 +40,13 @@ export type Preset = {
 };
 
 export type AppSettings = {
-  version: 1;
+  version: 4;
   autostart: boolean;
+  restartExplorerAfterApply: boolean;
   language: Locale;
   themeMode: ThemeMode;
+  monitorBindings: MonitorBinding[];
+  monitorAliases: MonitorAlias[];
   presets: Preset[];
 };
 
@@ -48,6 +64,11 @@ export type CreatePresetInput = {
 };
 
 export type UpdatePresetInput = Partial<CreatePresetInput>;
+
+export type SetMonitorAliasInput = {
+  monitorId: string;
+  name: string;
+};
 
 export type ApplyPresetResult = {
   presetId: string;

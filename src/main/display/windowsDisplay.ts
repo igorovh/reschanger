@@ -121,15 +121,19 @@ public static class DisplayBridge
                 continue;
             }
 
+            DISPLAY_DEVICE monitorDevice = FindMonitorDevice(device.DeviceName);
+            string monitorId = BuildStableMonitorId(device, monitorDevice);
+            string monitorName = BuildMonitorName(device, monitorDevice);
+
             if (!firstMonitor)
             {
                 monitors.Append(",");
             }
 
             monitors.Append("{");
-            AppendProperty(monitors, "id", device.DeviceName);
+            AppendProperty(monitors, "id", monitorId);
             monitors.Append(",");
-            AppendProperty(monitors, "name", String.IsNullOrWhiteSpace(device.DeviceString) ? device.DeviceName : device.DeviceString);
+            AppendProperty(monitors, "name", monitorName);
             monitors.Append(",");
             AppendProperty(monitors, "deviceName", device.DeviceName);
             monitors.Append(",");
@@ -185,6 +189,94 @@ public static class DisplayBridge
         DISPLAY_DEVICE device = new DISPLAY_DEVICE();
         device.cb = Marshal.SizeOf(typeof(DISPLAY_DEVICE));
         return device;
+    }
+
+    private static DISPLAY_DEVICE FindMonitorDevice(string adapterDeviceName)
+    {
+        DISPLAY_DEVICE fallback = new DISPLAY_DEVICE();
+        bool hasFallback = false;
+
+        for (uint index = 0; ; index++)
+        {
+            DISPLAY_DEVICE monitor = CreateDisplayDevice();
+            if (!EnumDisplayDevices(adapterDeviceName, index, ref monitor, 0))
+            {
+                break;
+            }
+
+            if (!hasFallback)
+            {
+                fallback = monitor;
+                hasFallback = true;
+            }
+
+            if ((monitor.StateFlags & DISPLAY_DEVICE_ACTIVE) != 0)
+            {
+                return monitor;
+            }
+        }
+
+        return hasFallback ? fallback : new DISPLAY_DEVICE();
+    }
+
+    private static string BuildMonitorName(DISPLAY_DEVICE adapterDevice, DISPLAY_DEVICE monitorDevice)
+    {
+        string name = FirstNonBlank(monitorDevice.DeviceString, adapterDevice.DeviceString, adapterDevice.DeviceName);
+        string hardwareCode = ExtractMonitorHardwareCode(monitorDevice.DeviceID);
+
+        if (String.IsNullOrWhiteSpace(hardwareCode) || name.IndexOf(hardwareCode, StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return name;
+        }
+
+        return name + " (" + hardwareCode + ")";
+    }
+
+    private static string ExtractMonitorHardwareCode(string deviceId)
+    {
+        if (String.IsNullOrWhiteSpace(deviceId))
+        {
+            return "";
+        }
+
+        string[] parts = deviceId.Split('\\');
+        if (parts.Length >= 2 && !String.IsNullOrWhiteSpace(parts[1]))
+        {
+            return parts[1];
+        }
+
+        return "";
+    }
+
+    private static string BuildStableMonitorId(DISPLAY_DEVICE adapterDevice, DISPLAY_DEVICE monitorDevice)
+    {
+        string monitorKey = FirstNonBlank(monitorDevice.DeviceID, monitorDevice.DeviceKey);
+        if (!String.IsNullOrWhiteSpace(monitorKey))
+        {
+            string adapterKey = FirstNonBlank(adapterDevice.DeviceID, adapterDevice.DeviceKey);
+            return "monitor:" + monitorKey + "|adapter:" + adapterKey;
+        }
+
+        string adapterFallback = FirstNonBlank(adapterDevice.DeviceID, adapterDevice.DeviceKey);
+        if (!String.IsNullOrWhiteSpace(adapterFallback))
+        {
+            return "adapter:" + adapterFallback;
+        }
+
+        return adapterDevice.DeviceName;
+    }
+
+    private static string FirstNonBlank(params string[] values)
+    {
+        foreach (string value in values)
+        {
+            if (!String.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+
+        return "";
     }
 
     private static DEVMODE CreateDevMode()

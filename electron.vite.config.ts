@@ -7,6 +7,10 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: resolve(__dirname, "src/main/index.ts"),
+        output: {
+          entryFileNames: "index.cjs",
+          format: "cjs",
+        },
       },
     },
   },
@@ -15,6 +19,10 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: resolve(__dirname, "src/main/preload.ts"),
+        output: {
+          entryFileNames: "preload.cjs",
+          format: "cjs",
+        },
       },
     },
   },
