@@ -1,13 +1,21 @@
 import {
   app,
   type BrowserWindow,
+  type Tray as ElectronTray,
   Menu,
+  type MenuItemConstructorOptions,
+  type NativeImage,
   Notification,
   nativeImage,
   Tray,
 } from "electron";
 import { formatMode, type Locale, t } from "../shared/i18n";
-import type { AppState } from "../shared/types";
+import type {
+  AppSettings,
+  AppState,
+  MonitorInfo,
+  Preset,
+} from "../shared/types";
 
 export type TrayControllerOptions = {
   getState: () => AppState;
@@ -19,7 +27,7 @@ export type TrayControllerOptions = {
 };
 
 export class TrayController {
-  private tray: Tray | null = null;
+  private tray: ElectronTray | null = null;
 
   constructor(private readonly options: TrayControllerOptions) {}
 
@@ -43,21 +51,18 @@ export class TrayController {
 
     const state = this.options.getState();
     const locale = state.settings.language;
-    const presetItems = state.settings.presets.map((preset) => ({
-      label: t(locale, "preset.trayLabel", {
-        name: preset.name,
-        monitorName: preset.monitorName,
-        mode: formatMode(preset.width, preset.height, preset.refreshRate),
-      }),
-      enabled: this.options.canApplyPreset(preset.id),
-      click: async () => {
+    const presetItems = buildMonitorPresetItems(
+      state,
+      locale,
+      (presetId) => this.options.canApplyPreset(presetId),
+      async (presetId) => {
         try {
-          await this.options.applyPreset(preset.id);
+          await this.options.applyPreset(presetId);
         } catch (error) {
           showTrayError(error, locale);
         }
       },
-    }));
+    );
 
     const menu = Menu.buildFromTemplate([
       {
@@ -113,7 +118,189 @@ export function attachWindowHideToTray(
   });
 }
 
-function createTrayIcon(): Electron.NativeImage {
+function buildMonitorPresetItems(
+  state: AppState,
+  locale: Locale,
+  canApplyPreset: (presetId: string) => boolean,
+  applyPreset: (presetId: string) => Promise<void>,
+): MenuItemConstructorOptions[] {
+  const monitorItems = state.monitors
+    .map((monitor, index) => {
+      const presets = state.settings.presets.filter(
+        (preset) => findMonitorForPreset(state, preset)?.id === monitor.id,
+      );
+
+      return {
+        monitor,
+        label: getMonitorDisplayName(locale, state.settings, monitor, index),
+        sortOrder: getMonitorSortOrder(state.settings, monitor, index),
+        submenu:
+          presets.length > 0
+            ? presets.map((preset) =>
+                buildPresetMenuItem(preset, canApplyPreset, applyPreset),
+              )
+            : [
+                {
+                  label: t(locale, "tray.noMonitorPresets"),
+                  enabled: false,
+                },
+              ],
+      };
+    })
+    .sort(
+      (left, right) =>
+        left.sortOrder - right.sortOrder ||
+        left.monitor.name.localeCompare(right.monitor.name),
+    );
+
+  const unavailablePresetItems = state.settings.presets
+    .filter((preset) => findMonitorForPreset(state, preset) === null)
+    .map((preset) => ({
+      label: t(locale, "preset.trayLabel", {
+        name: preset.name,
+        monitorName: getPresetMonitorName(state, preset),
+        mode: formatMode(preset.width, preset.height, preset.refreshRate),
+      }),
+      enabled: false,
+    }));
+
+  return [
+    ...monitorItems.map(
+      (item): MenuItemConstructorOptions => ({
+        label: item.label,
+        submenu: item.submenu,
+      }),
+    ),
+    ...(unavailablePresetItems.length > 0
+      ? [
+          { type: "separator" as const },
+          {
+            label: t(locale, "preset.unavailableGroup"),
+            submenu: unavailablePresetItems,
+          },
+        ]
+      : []),
+  ];
+}
+
+function buildPresetMenuItem(
+  preset: Preset,
+  canApplyPreset: (presetId: string) => boolean,
+  applyPreset: (presetId: string) => Promise<void>,
+): MenuItemConstructorOptions {
+  return {
+    label: `${preset.name} - ${formatMode(
+      preset.width,
+      preset.height,
+      preset.refreshRate,
+    )}`,
+    enabled: canApplyPreset(preset.id),
+    click: () => {
+      void applyPreset(preset.id);
+    },
+  };
+}
+
+function getMonitorTitle(
+  locale: Locale,
+  settings: AppSettings,
+  monitor: MonitorInfo,
+  fallbackIndex: number,
+): string {
+  return t(locale, "monitor.groupTitle", {
+    number: getMonitorSortOrder(settings, monitor, fallbackIndex),
+  });
+}
+
+function getMonitorDisplayName(
+  locale: Locale,
+  settings: AppSettings,
+  monitor: MonitorInfo,
+  fallbackIndex: number,
+): string {
+  const alias = settings.monitorAliases.find(
+    (item) => item.monitorId === monitor.id,
+  );
+
+  return (
+    alias?.name.trim() ||
+    getMonitorTitle(locale, settings, monitor, fallbackIndex)
+  );
+}
+
+function getPresetMonitorName(state: AppState, preset: Preset): string {
+  const monitor = findMonitorForPreset(state, preset);
+  if (monitor) {
+    const index = state.monitors.findIndex((item) => item.id === monitor.id);
+    return getMonitorDisplayName(
+      state.settings.language,
+      state.settings,
+      monitor,
+      index >= 0 ? index : 0,
+    );
+  }
+
+  const alias = state.settings.monitorAliases.find(
+    (item) => item.monitorId === preset.monitorId,
+  );
+
+  return alias?.name.trim() || preset.monitorName;
+}
+
+function getMonitorSortOrder(
+  settings: AppSettings,
+  monitor: MonitorInfo,
+  fallbackIndex: number,
+): number {
+  const rememberedBinding = settings.monitorBindings.find(
+    (binding) => binding.monitorId === monitor.id,
+  );
+  const rememberedNumber = rememberedBinding
+    ? parseDisplayNumber(rememberedBinding.deviceName)
+    : null;
+
+  return rememberedNumber ?? fallbackIndex + 1;
+}
+
+function findMonitorForPreset(
+  state: AppState,
+  preset: Preset,
+): MonitorInfo | null {
+  const exactMonitor =
+    state.monitors.find((monitor) => monitor.id === preset.monitorId) ?? null;
+  if (exactMonitor) {
+    return exactMonitor;
+  }
+
+  const binding = state.settings.monitorBindings.find(
+    (item) => item.deviceName === preset.monitorId,
+  );
+  if (binding) {
+    const monitor = state.monitors.find(
+      (item) => item.id === binding.monitorId,
+    );
+    if (monitor) {
+      return monitor;
+    }
+  }
+
+  return (
+    state.monitors.find((monitor) => monitor.deviceName === preset.monitorId) ??
+    null
+  );
+}
+
+function parseDisplayNumber(deviceName: string): number | null {
+  const match = /DISPLAY(\d+)$/i.exec(deviceName);
+  if (!match?.[1]) {
+    return null;
+  }
+
+  const value = Number(match[1]);
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function createTrayIcon(): NativeImage {
   const image = nativeImage.createFromBitmap(createIconBitmap(), {
     width: 16,
     height: 16,

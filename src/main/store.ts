@@ -9,16 +9,23 @@ import {
   type Locale,
   type ThemeMode,
 } from "../shared/i18n";
-import type { AppSettings, MonitorBinding, Preset } from "../shared/types";
+import type {
+  AppSettings,
+  MonitorAlias,
+  MonitorBinding,
+  Preset,
+} from "../shared/types";
 
-const SETTINGS_VERSION = 2;
+const SETTINGS_VERSION = 4;
 
 const DEFAULT_SETTINGS: AppSettings = {
   version: SETTINGS_VERSION,
   autostart: false,
+  restartExplorerAfterApply: false,
   language: DEFAULT_LOCALE,
   themeMode: DEFAULT_THEME_MODE,
   monitorBindings: [],
+  monitorAliases: [],
   presets: [],
 };
 
@@ -96,6 +103,26 @@ export class SettingsStore {
     return this.getSettings();
   }
 
+  async setMonitorAliases(
+    monitorAliases: MonitorAlias[],
+  ): Promise<AppSettings> {
+    this.settings = {
+      ...this.settings,
+      monitorAliases,
+    };
+    await this.save();
+    return this.getSettings();
+  }
+
+  async setRestartExplorerAfterApply(enabled: boolean): Promise<AppSettings> {
+    this.settings = {
+      ...this.settings,
+      restartExplorerAfterApply: enabled,
+    };
+    await this.save();
+    return this.getSettings();
+  }
+
   async setPresets(presets: Preset[]): Promise<AppSettings> {
     this.settings = {
       ...this.settings,
@@ -133,6 +160,10 @@ function normalizeSettings(value: unknown): AppSettings {
   return {
     version: SETTINGS_VERSION,
     autostart: typeof value.autostart === "boolean" ? value.autostart : false,
+    restartExplorerAfterApply:
+      typeof value.restartExplorerAfterApply === "boolean"
+        ? value.restartExplorerAfterApply
+        : false,
     language: isLocale(value.language) ? value.language : DEFAULT_LOCALE,
     themeMode: isThemeMode(value.themeMode)
       ? value.themeMode
@@ -140,8 +171,23 @@ function normalizeSettings(value: unknown): AppSettings {
     monitorBindings: Array.isArray(value.monitorBindings)
       ? value.monitorBindings.filter(isMonitorBinding)
       : [],
+    monitorAliases: Array.isArray(value.monitorAliases)
+      ? value.monitorAliases.filter(isMonitorAlias)
+      : [],
     presets: Array.isArray(value.presets) ? value.presets.filter(isPreset) : [],
   };
+}
+
+function isMonitorAlias(value: unknown): value is MonitorAlias {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    typeof value.monitorId === "string" &&
+    typeof value.name === "string" &&
+    typeof value.updatedAt === "string"
+  );
 }
 
 function isMonitorBinding(value: unknown): value is MonitorBinding {

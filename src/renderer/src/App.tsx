@@ -20,7 +20,14 @@ import {
   t,
 } from "../../shared/i18n";
 import { api } from "./api";
-import type { AppState, Locale, MonitorInfo, Preset, ThemeMode } from "./types";
+import type {
+  AppSettings,
+  AppState,
+  Locale,
+  MonitorInfo,
+  Preset,
+  ThemeMode,
+} from "./types";
 
 type FormState = {
   name: string;
@@ -35,11 +42,13 @@ type FormState = {
 
 const emptyState: AppState = {
   settings: {
-    version: 2,
+    version: 4,
     autostart: false,
+    restartExplorerAfterApply: false,
     language: DEFAULT_LOCALE,
     themeMode: DEFAULT_THEME_MODE,
     monitorBindings: [],
+    monitorAliases: [],
     presets: [],
   },
   monitors: [],
@@ -62,6 +71,7 @@ export function App(): React.JSX.Element {
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [monitorAliasName, setMonitorAliasName] = useState("");
   const [notice, setNotice] = useState<string>(() =>
     t(DEFAULT_LOCALE, "notice.loadingSettings"),
   );
@@ -139,6 +149,51 @@ export function App(): React.JSX.Element {
     () =>
       state.monitors.find((monitor) => monitor.id === form.monitorId) ?? null,
     [form.monitorId, state.monitors],
+  );
+
+  const selectedMonitorIndex = selectedMonitor
+    ? state.monitors.findIndex((monitor) => monitor.id === selectedMonitor.id)
+    : -1;
+
+  const selectedMonitorTitle = selectedMonitor
+    ? getMonitorTitle(
+        locale,
+        state.settings,
+        selectedMonitor,
+        selectedMonitorIndex >= 0 ? selectedMonitorIndex : 0,
+      )
+    : "";
+
+  const selectedMonitorDisplayName = selectedMonitor
+    ? getMonitorDisplayName(
+        locale,
+        state.settings,
+        selectedMonitor,
+        selectedMonitorIndex >= 0 ? selectedMonitorIndex : 0,
+      )
+    : "";
+
+  useEffect(() => {
+    if (!selectedMonitor) {
+      setMonitorAliasName("");
+      return;
+    }
+
+    setMonitorAliasName(
+      getMonitorAliasName(state.settings, selectedMonitor.id),
+    );
+  }, [selectedMonitor, state.settings]);
+
+  const selectedMonitorPresets = useMemo(
+    () =>
+      selectedMonitor
+        ? state.settings.presets.filter(
+            (preset) =>
+              findMonitorForPreset(state.monitors, state.settings, preset)
+                ?.id === selectedMonitor.id,
+          )
+        : [],
+    [selectedMonitor, state.monitors, state.settings],
   );
 
   const resolutionOptions = useMemo(
@@ -246,6 +301,16 @@ export function App(): React.JSX.Element {
     );
   }
 
+  async function setRestartExplorerAfterApply(enabled: boolean): Promise<void> {
+    await runAction(
+      t(
+        locale,
+        enabled ? "explorerRestart.enabled" : "explorerRestart.disabled",
+      ),
+      () => api.setRestartExplorerAfterApply(enabled),
+    );
+  }
+
   async function setLanguage(language: Locale): Promise<void> {
     if (language === locale) {
       return;
@@ -284,6 +349,33 @@ export function App(): React.JSX.Element {
     }
   }
 
+  async function saveMonitorAlias(): Promise<void> {
+    if (!selectedMonitor) {
+      return;
+    }
+
+    await runAction(t(locale, "notice.monitorAliasSaved"), () =>
+      api.setMonitorAlias({
+        monitorId: selectedMonitor.id,
+        name: monitorAliasName,
+      }),
+    );
+  }
+
+  async function resetMonitorAlias(): Promise<void> {
+    if (!selectedMonitor) {
+      return;
+    }
+
+    setMonitorAliasName("");
+    await runAction(t(locale, "notice.monitorAliasReset"), () =>
+      api.setMonitorAlias({
+        monitorId: selectedMonitor.id,
+        name: "",
+      }),
+    );
+  }
+
   async function runAction(
     successMessage: string,
     action: () => Promise<AppState>,
@@ -303,7 +395,11 @@ export function App(): React.JSX.Element {
   }
 
   function editPreset(preset: Preset): void {
-    const monitor = findMonitorForPreset(state.monitors, preset);
+    const monitor = findMonitorForPreset(
+      state.monitors,
+      state.settings,
+      preset,
+    );
     setEditingPresetId(preset.id);
     setForm({
       name: preset.name,
@@ -341,6 +437,69 @@ export function App(): React.JSX.Element {
         name: nextPresetName(locale, state.settings.presets),
       });
     }
+  }
+
+  function selectMonitor(monitorId: string): void {
+    const monitor = state.monitors.find((item) => item.id === monitorId);
+    if (!monitor) {
+      return;
+    }
+
+    setEditingPresetId(null);
+    setForm(
+      createFormForMonitor(
+        monitor,
+        form.name.trim() || nextPresetName(locale, state.settings.presets),
+      ),
+    );
+  }
+
+  function renderPresetItem(
+    preset: Preset,
+    isMonitorAvailable: boolean,
+  ): React.JSX.Element {
+    return (
+      <article className="preset-item" key={preset.id}>
+        <div className="preset-main">
+          <strong>{preset.name}</strong>
+          <span>
+            {formatMode(preset.width, preset.height, preset.refreshRate)}
+          </span>
+          {!isMonitorAvailable ? (
+            <em>{t(locale, "preset.monitorUnavailable")}</em>
+          ) : null}
+        </div>
+        <div className="preset-actions">
+          <button
+            className="icon-button"
+            type="button"
+            title={t(locale, "action.apply")}
+            onClick={() => void applyPreset(preset)}
+            disabled={!isMonitorAvailable || busy}
+          >
+            <Play size={17} />
+          </button>
+          <button
+            className="icon-button"
+            type="button"
+            title={t(locale, "action.edit")}
+            onClick={() => editPreset(preset)}
+            disabled={busy}
+          >
+            <Pencil size={17} />
+          </button>
+          <button
+            className="icon-button danger"
+            type="button"
+            title={t(locale, "action.delete")}
+            onClick={() => void deletePreset(preset)}
+            disabled={busy}
+          >
+            <Trash2 size={17} />
+          </button>
+        </div>
+      </article>
+    );
   }
 
   return (
@@ -439,6 +598,22 @@ export function App(): React.JSX.Element {
                   <span className="switch-track" />
                 </span>
               </label>
+              <label className="settings-row switch-row">
+                <span>{t(locale, "explorerRestart.label")}</span>
+                <span className="switch">
+                  <input
+                    type="checkbox"
+                    checked={state.settings.restartExplorerAfterApply}
+                    onChange={(event) =>
+                      void setRestartExplorerAfterApply(
+                        event.currentTarget.checked,
+                      )
+                    }
+                    disabled={busy}
+                  />
+                  <span className="switch-track" />
+                </span>
+              </label>
             </div>
           </section>
         </div>
@@ -456,6 +631,79 @@ export function App(): React.JSX.Element {
             <span>{notice}</span>
           </div>
         )}
+      </section>
+
+      <section className="panel monitor-picker-panel">
+        <div className="field monitor-picker-field">
+          <label htmlFor="active-monitor">{t(locale, "field.monitor")}</label>
+          <select
+            id="active-monitor"
+            value={form.monitorId}
+            onChange={(event) => selectMonitor(event.currentTarget.value)}
+            disabled={busy || state.monitors.length === 0}
+          >
+            {state.monitors.length === 0 ? (
+              <option value="">{t(locale, "empty.noMonitors")}</option>
+            ) : null}
+            {state.monitors.map((monitor, index) => (
+              <option key={monitor.id} value={monitor.id}>
+                {getMonitorDisplayName(locale, state.settings, monitor, index)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field monitor-alias-field">
+          <label htmlFor="monitor-alias">
+            {t(locale, "field.monitorAlias")}
+          </label>
+          <div className="monitor-alias-row">
+            <input
+              id="monitor-alias"
+              value={monitorAliasName}
+              onChange={(event) =>
+                setMonitorAliasName(event.currentTarget.value)
+              }
+              placeholder={selectedMonitorTitle}
+              disabled={!selectedMonitor || busy}
+            />
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => void saveMonitorAlias()}
+              disabled={!selectedMonitor || busy}
+            >
+              <Save size={17} />
+              <span>{t(locale, "action.save")}</span>
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              onClick={() => void resetMonitorAlias()}
+              disabled={
+                !selectedMonitor || busy || monitorAliasName.length === 0
+              }
+              title={t(locale, "action.reset")}
+            >
+              <X size={17} />
+            </button>
+          </div>
+        </div>
+        {selectedMonitor ? (
+          <div className="monitor-picker-meta">
+            <span>{selectedMonitorTitle}</span>
+            <span>{selectedMonitor.name}</span>
+            <span>{selectedMonitor.deviceName}</span>
+            <span>
+              {t(locale, "form.currentMode", {
+                mode: formatMode(
+                  selectedMonitor.current.width,
+                  selectedMonitor.current.height,
+                  selectedMonitor.current.refreshRate,
+                ),
+              })}
+            </span>
+          </div>
+        ) : null}
       </section>
 
       <div className="content-grid">
@@ -480,43 +728,6 @@ export function App(): React.JSX.Element {
               placeholder={nextPresetName(locale, [])}
             />
           </div>
-
-          <div className="field">
-            <label htmlFor="monitor">{t(locale, "field.monitor")}</label>
-            <select
-              id="monitor"
-              value={form.monitorId}
-              onChange={(event) => {
-                const monitor = state.monitors.find(
-                  (item) => item.id === event.currentTarget.value,
-                );
-                if (monitor) {
-                  setForm(createFormForMonitor(monitor, form.name));
-                }
-              }}
-            >
-              {state.monitors.length === 0 ? (
-                <option value="">{t(locale, "empty.noMonitors")}</option>
-              ) : null}
-              {state.monitors.map((monitor) => (
-                <option key={monitor.id} value={monitor.id}>
-                  {monitor.name} ({monitor.deviceName})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {selectedMonitor ? (
-            <div className="current-mode">
-              {t(locale, "form.currentMode", {
-                mode: formatMode(
-                  selectedMonitor.current.width,
-                  selectedMonitor.current.height,
-                  selectedMonitor.current.refreshRate,
-                ),
-              })}
-            </div>
-          ) : null}
 
           <label className="checkbox-row">
             <input
@@ -657,65 +868,24 @@ export function App(): React.JSX.Element {
         <section className="panel">
           <div className="panel-heading">
             <Save size={20} />
-            <h2>{t(locale, "preset.savedPresets")}</h2>
+            <h2>
+              {selectedMonitor
+                ? `${t(locale, "preset.savedPresets")} - ${selectedMonitorDisplayName}`
+                : t(locale, "preset.savedPresets")}
+            </h2>
           </div>
 
           <div className="preset-list">
-            {state.settings.presets.length === 0 ? (
-              <div className="empty-state">{t(locale, "empty.noPresets")}</div>
+            {!selectedMonitor ? (
+              <div className="empty-state">{t(locale, "empty.noMonitors")}</div>
+            ) : selectedMonitorPresets.length > 0 ? (
+              selectedMonitorPresets.map((preset) =>
+                renderPresetItem(preset, true),
+              )
             ) : (
-              state.settings.presets.map((preset) => {
-                const isMonitorAvailable =
-                  findMonitorForPreset(state.monitors, preset) !== null;
-
-                return (
-                  <article className="preset-item" key={preset.id}>
-                    <div className="preset-main">
-                      <strong>{preset.name}</strong>
-                      <span>
-                        {preset.monitorName} ·{" "}
-                        {formatMode(
-                          preset.width,
-                          preset.height,
-                          preset.refreshRate,
-                        )}
-                      </span>
-                      {!isMonitorAvailable ? (
-                        <em>{t(locale, "preset.monitorUnavailable")}</em>
-                      ) : null}
-                    </div>
-                    <div className="preset-actions">
-                      <button
-                        className="icon-button"
-                        type="button"
-                        title={t(locale, "action.apply")}
-                        onClick={() => void applyPreset(preset)}
-                        disabled={!isMonitorAvailable || busy}
-                      >
-                        <Play size={17} />
-                      </button>
-                      <button
-                        className="icon-button"
-                        type="button"
-                        title={t(locale, "action.edit")}
-                        onClick={() => editPreset(preset)}
-                        disabled={busy}
-                      >
-                        <Pencil size={17} />
-                      </button>
-                      <button
-                        className="icon-button danger"
-                        type="button"
-                        title={t(locale, "action.delete")}
-                        onClick={() => void deletePreset(preset)}
-                        disabled={busy}
-                      >
-                        <Trash2 size={17} />
-                      </button>
-                    </div>
-                  </article>
-                );
-              })
+              <div className="empty-state">
+                {t(locale, "preset.noMonitorPresets")}
+              </div>
             )}
           </div>
         </section>
@@ -826,14 +996,85 @@ function createPreviewPreset(
   };
 }
 
+function getMonitorTitle(
+  locale: Locale,
+  settings: AppSettings,
+  monitor: MonitorInfo,
+  fallbackIndex: number,
+): string {
+  return t(locale, "monitor.groupTitle", {
+    number: getMonitorSortOrder(settings, monitor, fallbackIndex),
+  });
+}
+
+function getMonitorDisplayName(
+  locale: Locale,
+  settings: AppSettings,
+  monitor: MonitorInfo,
+  fallbackIndex: number,
+): string {
+  return (
+    getMonitorAliasName(settings, monitor.id) ||
+    getMonitorTitle(locale, settings, monitor, fallbackIndex)
+  );
+}
+
+function getMonitorAliasName(settings: AppSettings, monitorId: string): string {
+  const alias = settings.monitorAliases.find(
+    (item) => item.monitorId === monitorId,
+  );
+
+  return alias?.name.trim() ?? "";
+}
+
+function getMonitorSortOrder(
+  settings: AppSettings,
+  monitor: MonitorInfo,
+  fallbackIndex: number,
+): number {
+  const rememberedBinding = settings.monitorBindings.find(
+    (binding) => binding.monitorId === monitor.id,
+  );
+  const rememberedNumber = rememberedBinding
+    ? parseDisplayNumber(rememberedBinding.deviceName)
+    : null;
+
+  return rememberedNumber ?? fallbackIndex + 1;
+}
+
+function parseDisplayNumber(deviceName: string): number | null {
+  const match = /DISPLAY(\d+)$/i.exec(deviceName);
+  if (!match?.[1]) {
+    return null;
+  }
+
+  const value = Number(match[1]);
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
+
 function findMonitorForPreset(
   monitors: MonitorInfo[],
+  settings: AppSettings,
   preset: Preset,
 ): MonitorInfo | null {
+  const exactMonitor =
+    monitors.find((monitor) => monitor.id === preset.monitorId) ?? null;
+  if (exactMonitor) {
+    return exactMonitor;
+  }
+
+  const binding = settings.monitorBindings.find(
+    (item) => item.deviceName === preset.monitorId,
+  );
+  if (binding) {
+    const monitor = monitors.find((item) => item.id === binding.monitorId);
+    if (monitor) {
+      return monitor;
+    }
+  }
+
   return (
-    monitors.find((monitor) => monitor.id === preset.monitorId) ??
-    monitors.find((monitor) => monitor.deviceName === preset.monitorId) ??
-    null
+    monitors.find((monitor) => monitor.deviceName === preset.monitorId) ?? null
   );
 }
 

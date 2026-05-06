@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
@@ -17,6 +18,7 @@ import type {
   MonitorBinding,
   MonitorInfo,
   Preset,
+  SetMonitorAliasInput,
   UpdatePresetInput,
 } from "../shared/types";
 import { applyDisplayMode, listMonitors } from "./display/windowsDisplay";
@@ -28,6 +30,9 @@ let shouldQuit = false;
 let store: SettingsStore;
 let trayController: TrayController;
 let monitors: MonitorInfo[] = [];
+let explorerRestartTimer: ReturnType<typeof setTimeout> | null = null;
+
+const EXPLORER_RESTART_DELAY_MS = 3000;
 
 const singleInstanceLock = app.requestSingleInstanceLock();
 
@@ -68,6 +73,7 @@ if (!singleInstanceLock) {
 
   app.on("before-quit", () => {
     shouldQuit = true;
+    clearScheduledExplorerRestart();
   });
 
   app.on("window-all-closed", () => {
@@ -85,7 +91,7 @@ function createMainWindow(): void {
     title: "reschanger",
     backgroundColor: "#f8fafc",
     webPreferences: {
-      preload: join(__dirname, "../preload/preload.mjs"),
+      preload: join(__dirname, "../preload/preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
@@ -174,9 +180,29 @@ function registerIpcHandlers(): void {
     return getState();
   });
 
+  ipcMain.handle(
+    "monitors:alias:set",
+    async (_event, input: SetMonitorAliasInput) => {
+      await setMonitorAlias(input);
+      broadcastState();
+      trayController.rebuild();
+      return getState();
+    },
+  );
+
   ipcMain.handle("autostart:set", async (_event, enabled: boolean) => {
     setAutostart(enabled);
     await store.setAutostart(enabled);
+    broadcastState();
+    return getState();
+  });
+
+  ipcMain.handle("explorer-restart:set", async (_event, enabled: boolean) => {
+    if (!enabled) {
+      clearScheduledExplorerRestart();
+    }
+
+    await store.setRestartExplorerAfterApply(enabled);
     broadcastState();
     return getState();
   });
@@ -255,6 +281,7 @@ async function applyPresetById(id: string): Promise<void> {
     preset.refreshRate,
     currentLocale(),
   );
+  scheduleExplorerRestartAfterApply();
   await refreshMonitorsInternal(false);
   trayController.rebuild();
   broadcastState();
@@ -264,7 +291,7 @@ async function applyPresetById(id: string): Promise<void> {
     presetName: preset.name,
     message: t(currentLocale(), "message.presetApplied", {
       mode: formatMode(preset.width, preset.height, preset.refreshRate),
-      monitorName: preset.monitorName,
+      monitorName: getMonitorDisplayName(monitor),
     }),
   };
   mainWindow?.webContents.send("preset:applied", result);
@@ -293,13 +320,48 @@ function buildPreset(input: CreatePresetInput, previous?: Preset): Preset {
     id: previous?.id ?? randomUUID(),
     name,
     monitorId: monitor.id,
-    monitorName: monitor.name,
+    monitorName: getMonitorDisplayName(monitor),
     width: input.width,
     height: input.height,
     refreshRate: input.refreshRate,
     createdAt: previous?.createdAt ?? now,
     updatedAt: now,
   };
+}
+
+async function setMonitorAlias(input: SetMonitorAliasInput): Promise<void> {
+  const monitor = monitors.find((item) => item.id === input.monitorId);
+  if (!monitor) {
+    throw new Error(t(currentLocale(), "error.selectCurrentMonitor"));
+  }
+
+  const settings = store.getSettings();
+  const name = input.name.trim();
+  const nextAliases =
+    name.length > 0
+      ? [
+          ...settings.monitorAliases.filter(
+            (alias) => alias.monitorId !== monitor.id,
+          ),
+          {
+            monitorId: monitor.id,
+            name,
+            updatedAt: new Date().toISOString(),
+          },
+        ]
+      : settings.monitorAliases.filter(
+          (alias) => alias.monitorId !== monitor.id,
+        );
+
+  await store.setMonitorAliases(nextAliases);
+}
+
+function getMonitorDisplayName(monitor: MonitorInfo): string {
+  const alias = store
+    .getSettings()
+    .monitorAliases.find((item) => item.monitorId === monitor.id);
+
+  return alias?.name.trim() || monitor.name;
 }
 
 async function rememberMonitorBindings(
@@ -468,6 +530,73 @@ function setAutostart(enabled: boolean): void {
     path: process.execPath,
     args,
   });
+}
+
+function scheduleExplorerRestartAfterApply(): void {
+  if (
+    process.platform !== "win32" ||
+    !store.getSettings().restartExplorerAfterApply
+  ) {
+    return;
+  }
+
+  clearScheduledExplorerRestart();
+  explorerRestartTimer = setTimeout(() => {
+    explorerRestartTimer = null;
+
+    if (store.getSettings().restartExplorerAfterApply) {
+      restartExplorer();
+    }
+  }, EXPLORER_RESTART_DELAY_MS);
+}
+
+function clearScheduledExplorerRestart(): void {
+  if (explorerRestartTimer === null) {
+    return;
+  }
+
+  clearTimeout(explorerRestartTimer);
+  explorerRestartTimer = null;
+}
+
+function restartExplorer(): void {
+  let explorerStarted = false;
+  const startOnce = () => {
+    if (explorerStarted) {
+      return;
+    }
+
+    explorerStarted = true;
+    startExplorer();
+  };
+
+  try {
+    const taskkill = spawn("taskkill", ["/f", "/im", "explorer.exe"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+
+    taskkill.once("error", startOnce);
+    taskkill.once("close", startOnce);
+    taskkill.unref();
+  } catch {
+    startOnce();
+  }
+}
+
+function startExplorer(): void {
+  try {
+    const explorer = spawn("explorer.exe", [], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+
+    explorer.once("error", () => {});
+    explorer.unref();
+  } catch {
+    // Resolution changes should not fail because Explorer could not restart.
+  }
 }
 
 function broadcastState(): void {
