@@ -11,21 +11,29 @@ import {
 } from "../shared/i18n";
 import type {
   AppSettings,
+  DefaultPreset,
   MonitorAlias,
   MonitorBinding,
   Preset,
 } from "../shared/types";
+import {
+  DEFAULT_PROCESS_WATCH_INTERVAL_MS,
+  MAX_PROCESS_WATCH_INTERVAL_MS,
+  MIN_PROCESS_WATCH_INTERVAL_MS,
+} from "../shared/types";
 
-const SETTINGS_VERSION = 4;
+const SETTINGS_VERSION = 6;
 
 const DEFAULT_SETTINGS: AppSettings = {
   version: SETTINGS_VERSION,
   autostart: false,
   restartExplorerAfterApply: false,
+  processWatchIntervalMs: DEFAULT_PROCESS_WATCH_INTERVAL_MS,
   language: DEFAULT_LOCALE,
   themeMode: DEFAULT_THEME_MODE,
   monitorBindings: [],
   monitorAliases: [],
+  defaultPresets: [],
   presets: [],
 };
 
@@ -114,10 +122,30 @@ export class SettingsStore {
     return this.getSettings();
   }
 
+  async setDefaultPresets(
+    defaultPresets: DefaultPreset[],
+  ): Promise<AppSettings> {
+    this.settings = {
+      ...this.settings,
+      defaultPresets,
+    };
+    await this.save();
+    return this.getSettings();
+  }
+
   async setRestartExplorerAfterApply(enabled: boolean): Promise<AppSettings> {
     this.settings = {
       ...this.settings,
       restartExplorerAfterApply: enabled,
+    };
+    await this.save();
+    return this.getSettings();
+  }
+
+  async setProcessWatchIntervalMs(intervalMs: number): Promise<AppSettings> {
+    this.settings = {
+      ...this.settings,
+      processWatchIntervalMs: normalizeProcessWatchIntervalMs(intervalMs),
     };
     await this.save();
     return this.getSettings();
@@ -164,6 +192,9 @@ function normalizeSettings(value: unknown): AppSettings {
       typeof value.restartExplorerAfterApply === "boolean"
         ? value.restartExplorerAfterApply
         : false,
+    processWatchIntervalMs: normalizeProcessWatchIntervalMs(
+      value.processWatchIntervalMs,
+    ),
     language: isLocale(value.language) ? value.language : DEFAULT_LOCALE,
     themeMode: isThemeMode(value.themeMode)
       ? value.themeMode
@@ -174,8 +205,25 @@ function normalizeSettings(value: unknown): AppSettings {
     monitorAliases: Array.isArray(value.monitorAliases)
       ? value.monitorAliases.filter(isMonitorAlias)
       : [],
-    presets: Array.isArray(value.presets) ? value.presets.filter(isPreset) : [],
+    defaultPresets: Array.isArray(value.defaultPresets)
+      ? value.defaultPresets.filter(isDefaultPreset)
+      : [],
+    presets: Array.isArray(value.presets)
+      ? value.presets.map(normalizePreset).filter(isPreset)
+      : [],
   };
+}
+
+function normalizeProcessWatchIntervalMs(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return DEFAULT_PROCESS_WATCH_INTERVAL_MS;
+  }
+
+  const intervalMs = Math.round(Number(value));
+  return Math.min(
+    Math.max(intervalMs, MIN_PROCESS_WATCH_INTERVAL_MS),
+    MAX_PROCESS_WATCH_INTERVAL_MS,
+  );
 }
 
 function isMonitorAlias(value: unknown): value is MonitorAlias {
@@ -203,20 +251,52 @@ function isMonitorBinding(value: unknown): value is MonitorBinding {
   );
 }
 
-function isPreset(value: unknown): value is Preset {
+function normalizePreset(value: unknown): Preset | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  if (
+    typeof value.id !== "string" ||
+    typeof value.name !== "string" ||
+    typeof value.monitorId !== "string" ||
+    typeof value.monitorName !== "string" ||
+    typeof value.width !== "number" ||
+    typeof value.height !== "number" ||
+    typeof value.refreshRate !== "number" ||
+    typeof value.createdAt !== "string" ||
+    typeof value.updatedAt !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    name: value.name,
+    monitorId: value.monitorId,
+    monitorName: value.monitorName,
+    width: value.width,
+    height: value.height,
+    refreshRate: value.refreshRate,
+    processName:
+      typeof value.processName === "string" ? value.processName.trim() : "",
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
+  };
+}
+
+function isPreset(value: Preset | null): value is Preset {
+  return value !== null;
+}
+
+function isDefaultPreset(value: unknown): value is DefaultPreset {
   if (!isRecord(value)) {
     return false;
   }
 
   return (
-    typeof value.id === "string" &&
-    typeof value.name === "string" &&
     typeof value.monitorId === "string" &&
-    typeof value.monitorName === "string" &&
-    typeof value.width === "number" &&
-    typeof value.height === "number" &&
-    typeof value.refreshRate === "number" &&
-    typeof value.createdAt === "string" &&
+    typeof value.presetId === "string" &&
     typeof value.updatedAt === "string"
   );
 }

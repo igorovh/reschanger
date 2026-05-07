@@ -203,6 +203,7 @@ button {
   font-weight: 650;
 }
 
+.settings-row input,
 .settings-row select {
   min-height: 42px;
   width: 100%;
@@ -214,9 +215,32 @@ button {
   color: var(--text);
 }
 
+.settings-row input:focus,
 .settings-row select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.settings-advanced {
+  display: grid;
+  gap: 12px;
+  padding-top: 4px;
+  border-top: 1px solid var(--surface-border);
+}
+
+.settings-advanced summary {
+  cursor: pointer;
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.settings-advanced[open] {
+  padding-top: 12px;
+}
+
+.settings-advanced[open] summary {
+  margin-bottom: 12px;
 }
 
 .switch-row {
@@ -495,6 +519,11 @@ button {
   color: var(--accent-strong);
 }
 
+.icon-button.active {
+  background: var(--info-bg);
+  color: var(--accent-strong);
+}
+
 .icon-button.danger {
   color: var(--danger);
 }
@@ -622,6 +651,17 @@ button:disabled {
 
 .preset-main em {
   color: #b45309;
+}
+
+.preset-main .preset-default-badge {
+  width: max-content;
+  max-width: 100%;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: var(--info-bg);
+  color: var(--info-text);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 @media (max-width: 900px) {
