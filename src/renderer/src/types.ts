@@ -8,6 +8,8 @@ export type {
   DisplayMode,
   MonitorInfo,
   Preset,
+  SetDefaultPresetInput,
   SetMonitorAliasInput,
+  SetProcessWatchIntervalInput,
   UpdatePresetInput,
 } from "../../shared/types";

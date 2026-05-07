@@ -7,6 +7,7 @@ import {
   RefreshCw,
   Save,
   Settings,
+  Star,
   Trash2,
   X,
 } from "lucide-react";
@@ -19,6 +20,11 @@ import {
   THEME_MODES,
   t,
 } from "../../shared/i18n";
+import {
+  DEFAULT_PROCESS_WATCH_INTERVAL_MS,
+  MAX_PROCESS_WATCH_INTERVAL_MS,
+  MIN_PROCESS_WATCH_INTERVAL_MS,
+} from "../../shared/types";
 import { api } from "./api";
 import type {
   AppSettings,
@@ -31,6 +37,7 @@ import type {
 
 type FormState = {
   name: string;
+  processName: string;
   monitorId: string;
   resolution: string;
   refreshRate: number;
@@ -51,13 +58,15 @@ type PresetGroup = {
 
 const emptyState: AppState = {
   settings: {
-    version: 4,
+    version: 6,
     autostart: false,
     restartExplorerAfterApply: false,
+    processWatchIntervalMs: DEFAULT_PROCESS_WATCH_INTERVAL_MS,
     language: DEFAULT_LOCALE,
     themeMode: DEFAULT_THEME_MODE,
     monitorBindings: [],
     monitorAliases: [],
+    defaultPresets: [],
     presets: [],
   },
   monitors: [],
@@ -65,6 +74,7 @@ const emptyState: AppState = {
 
 const initialForm: FormState = {
   name: nextPresetName(DEFAULT_LOCALE, []),
+  processName: "",
   monitorId: "",
   resolution: "",
   refreshRate: 60,
@@ -250,6 +260,7 @@ export function App(): React.JSX.Element {
 
     const payload = {
       name: form.name,
+      processName: form.processName,
       monitorId: selectedMonitor.id,
       width: selectedMode.width,
       height: selectedMode.height,
@@ -283,6 +294,13 @@ export function App(): React.JSX.Element {
     );
   }
 
+  async function setDefaultPreset(preset: Preset): Promise<void> {
+    await runAction(
+      t(locale, "notice.defaultPresetSaved", { name: preset.name }),
+      () => api.setDefaultPreset({ presetId: preset.id }),
+    );
+  }
+
   async function deletePreset(preset: Preset): Promise<void> {
     await runAction(
       t(locale, "notice.presetDeleted", { name: preset.name }),
@@ -307,6 +325,19 @@ export function App(): React.JSX.Element {
         enabled ? "explorerRestart.enabled" : "explorerRestart.disabled",
       ),
       () => api.setRestartExplorerAfterApply(enabled),
+    );
+  }
+
+  async function setProcessWatchIntervalSeconds(value: string): Promise<void> {
+    const intervalSeconds = Number(value);
+    if (!Number.isFinite(intervalSeconds)) {
+      return;
+    }
+
+    await runAction(t(locale, "processWatchInterval.updated"), () =>
+      api.setProcessWatchInterval({
+        intervalMs: Math.round(intervalSeconds * 1000),
+      }),
     );
   }
 
@@ -402,6 +433,7 @@ export function App(): React.JSX.Element {
     setEditingPresetId(preset.id);
     setForm({
       name: preset.name,
+      processName: preset.processName,
       monitorId: monitor?.id ?? preset.monitorId,
       resolution: `${preset.width}x${preset.height}`,
       refreshRate: preset.refreshRate,
@@ -457,6 +489,8 @@ export function App(): React.JSX.Element {
     preset: Preset,
     isMonitorAvailable: boolean,
   ): React.JSX.Element {
+    const isDefault = isDefaultPreset(state.settings, preset);
+
     return (
       <article className="preset-item" key={preset.id}>
         <div className="preset-main">
@@ -464,11 +498,35 @@ export function App(): React.JSX.Element {
           <span>
             {formatMode(preset.width, preset.height, preset.refreshRate)}
           </span>
+          {preset.processName ? (
+            <span>
+              {t(locale, "preset.processTrigger", {
+                processName: preset.processName,
+              })}
+            </span>
+          ) : null}
+          {isDefault ? (
+            <span className="preset-default-badge">
+              {t(locale, "preset.defaultBadge")}
+            </span>
+          ) : null}
           {!isMonitorAvailable ? (
             <em>{t(locale, "preset.monitorUnavailable")}</em>
           ) : null}
         </div>
         <div className="preset-actions">
+          <button
+            className={`icon-button${isDefault ? " active" : ""}`}
+            type="button"
+            title={t(
+              locale,
+              isDefault ? "preset.defaultSelected" : "action.setDefault",
+            )}
+            onClick={() => void setDefaultPreset(preset)}
+            disabled={!isMonitorAvailable || busy}
+          >
+            <Star size={17} fill={isDefault ? "currentColor" : "none"} />
+          </button>
           <button
             className="icon-button"
             type="button"
@@ -639,6 +697,25 @@ export function App(): React.JSX.Element {
                   <span className="switch-track" />
                 </span>
               </label>
+              <details className="settings-advanced">
+                <summary>{t(locale, "settings.advanced")}</summary>
+                <label className="settings-row">
+                  <span>{t(locale, "processWatchInterval.label")}</span>
+                  <input
+                    type="number"
+                    min={MIN_PROCESS_WATCH_INTERVAL_MS / 1000}
+                    max={MAX_PROCESS_WATCH_INTERVAL_MS / 1000}
+                    step={0.25}
+                    value={state.settings.processWatchIntervalMs / 1000}
+                    onChange={(event) =>
+                      void setProcessWatchIntervalSeconds(
+                        event.currentTarget.value,
+                      )
+                    }
+                    disabled={busy}
+                  />
+                </label>
+              </details>
             </div>
           </section>
         </div>
@@ -751,6 +828,20 @@ export function App(): React.JSX.Element {
                 setForm({ ...form, name: event.currentTarget.value })
               }
               placeholder={nextPresetName(locale, [])}
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="preset-process">
+              {t(locale, "field.processName")}
+            </label>
+            <input
+              id="preset-process"
+              value={form.processName}
+              onChange={(event) =>
+                setForm({ ...form, processName: event.currentTarget.value })
+              }
+              placeholder={t(locale, "form.processPlaceholder")}
             />
           </div>
 
@@ -920,6 +1011,7 @@ function createFormForMonitor(monitor: MonitorInfo, name: string): FormState {
 
   return {
     name,
+    processName: "",
     monitorId: monitor.id,
     resolution: modeExists
       ? currentResolution
@@ -994,6 +1086,7 @@ function createPreviewPreset(
     width: number;
     height: number;
     refreshRate: number;
+    processName?: string;
   },
   monitor: MonitorInfo,
 ): Preset {
@@ -1006,9 +1099,14 @@ function createPreviewPreset(
     width: input.width,
     height: input.height,
     refreshRate: input.refreshRate,
+    processName: input.processName ?? "",
     createdAt: now,
     updatedAt: now,
   };
+}
+
+function isDefaultPreset(settings: AppSettings, preset: Preset): boolean {
+  return settings.defaultPresets.some((item) => item.presetId === preset.id);
 }
 
 function getMonitorTitle(

@@ -4,7 +4,9 @@ import type {
   ApplyPresetResult,
   AppState,
   CreatePresetInput,
+  SetDefaultPresetInput,
   SetMonitorAliasInput,
+  SetProcessWatchIntervalInput,
   UpdatePresetInput,
 } from "../../shared/types";
 
@@ -15,9 +17,13 @@ export type ReschangerApi = {
   updatePreset: (id: string, input: UpdatePresetInput) => Promise<AppState>;
   deletePreset: (id: string) => Promise<AppState>;
   applyPreset: (id: string) => Promise<AppState>;
+  setDefaultPreset: (input: SetDefaultPresetInput) => Promise<AppState>;
   setMonitorAlias: (input: SetMonitorAliasInput) => Promise<AppState>;
   setAutostart: (enabled: boolean) => Promise<AppState>;
   setRestartExplorerAfterApply: (enabled: boolean) => Promise<AppState>;
+  setProcessWatchInterval: (
+    input: SetProcessWatchIntervalInput,
+  ) => Promise<AppState>;
   setLanguage: (language: Locale) => Promise<AppState>;
   setThemeMode: (themeMode: ThemeMode) => Promise<AppState>;
   onStateChanged: (callback: (state: AppState) => void) => () => void;

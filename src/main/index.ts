@@ -18,8 +18,14 @@ import type {
   MonitorBinding,
   MonitorInfo,
   Preset,
+  SetDefaultPresetInput,
   SetMonitorAliasInput,
+  SetProcessWatchIntervalInput,
   UpdatePresetInput,
+} from "../shared/types";
+import {
+  MAX_PROCESS_WATCH_INTERVAL_MS,
+  MIN_PROCESS_WATCH_INTERVAL_MS,
 } from "../shared/types";
 import { applyDisplayMode, listMonitors } from "./display/windowsDisplay";
 import { SettingsStore } from "./store";
@@ -31,8 +37,13 @@ let store: SettingsStore;
 let trayController: TrayController;
 let monitors: MonitorInfo[] = [];
 let explorerRestartTimer: ReturnType<typeof setTimeout> | null = null;
+let processWatchTimer: ReturnType<typeof setInterval> | null = null;
+let processWatchInFlight = false;
+let processWatchLastErrorAt = 0;
+const activeProcessPresetIds = new Set<string>();
 
 const EXPLORER_RESTART_DELAY_MS = 3000;
+const PROCESS_WATCH_ERROR_THROTTLE_MS = 60000;
 
 const singleInstanceLock = app.requestSingleInstanceLock();
 
@@ -48,6 +59,7 @@ if (!singleInstanceLock) {
     await store.load();
     syncAutostartWithSettings();
     await refreshMonitorsInternal(false);
+    await reconcileDefaultPresets();
 
     createMainWindow();
     trayController = new TrayController({
@@ -61,6 +73,7 @@ if (!singleInstanceLock) {
     trayController.create();
 
     registerIpcHandlers();
+    startProcessWatcher();
 
     if (!process.argv.includes("--hidden")) {
       showMainWindow();
@@ -74,6 +87,7 @@ if (!singleInstanceLock) {
   app.on("before-quit", () => {
     shouldQuit = true;
     clearScheduledExplorerRestart();
+    stopProcessWatcher();
   });
 
   app.on("window-all-closed", () => {
@@ -148,6 +162,7 @@ function registerIpcHandlers(): void {
         width: input.width ?? preset.width,
         height: input.height ?? preset.height,
         refreshRate: input.refreshRate ?? preset.refreshRate,
+        processName: input.processName ?? preset.processName,
       };
 
       const updatedPreset = {
@@ -159,6 +174,7 @@ function registerIpcHandlers(): void {
       await store.setPresets(
         settings.presets.map((item) => (item.id === id ? updatedPreset : item)),
       );
+      await reconcileDefaultPresets();
       broadcastState();
       trayController.rebuild();
       return getState();
@@ -170,6 +186,10 @@ function registerIpcHandlers(): void {
     await store.setPresets(
       settings.presets.filter((preset) => preset.id !== id),
     );
+    await store.setDefaultPresets(
+      settings.defaultPresets.filter((preset) => preset.presetId !== id),
+    );
+    activeProcessPresetIds.delete(id);
     broadcastState();
     trayController.rebuild();
     return getState();
@@ -179,6 +199,16 @@ function registerIpcHandlers(): void {
     await applyPresetById(id);
     return getState();
   });
+
+  ipcMain.handle(
+    "presets:default:set",
+    async (_event, input: SetDefaultPresetInput) => {
+      await setDefaultPreset(input);
+      broadcastState();
+      trayController.rebuild();
+      return getState();
+    },
+  );
 
   ipcMain.handle(
     "monitors:alias:set",
@@ -206,6 +236,17 @@ function registerIpcHandlers(): void {
     broadcastState();
     return getState();
   });
+
+  ipcMain.handle(
+    "process-watch-interval:set",
+    async (_event, input: SetProcessWatchIntervalInput) => {
+      const intervalMs = validateProcessWatchIntervalMs(input.intervalMs);
+      await store.setProcessWatchIntervalMs(intervalMs);
+      rescheduleProcessWatcher();
+      broadcastState();
+      return getState();
+    },
+  );
 
   ipcMain.handle("language:set", async (_event, language: Locale) => {
     if (!isLocale(language)) {
@@ -323,9 +364,31 @@ function buildPreset(input: CreatePresetInput, previous?: Preset): Preset {
     width: input.width,
     height: input.height,
     refreshRate: input.refreshRate,
+    processName: normalizeProcessImageName(input.processName ?? ""),
     createdAt: previous?.createdAt ?? now,
     updatedAt: now,
   };
+}
+
+async function setDefaultPreset(input: SetDefaultPresetInput): Promise<void> {
+  const settings = store.getSettings();
+  const preset = settings.presets.find((item) => item.id === input.presetId);
+
+  if (!preset) {
+    throw new Error(t(currentLocale(), "error.presetMissing"));
+  }
+
+  const now = new Date().toISOString();
+  await store.setDefaultPresets([
+    ...settings.defaultPresets.filter(
+      (item) => item.monitorId !== preset.monitorId,
+    ),
+    {
+      monitorId: preset.monitorId,
+      presetId: preset.id,
+      updatedAt: now,
+    },
+  ]);
 }
 
 async function setMonitorAlias(input: SetMonitorAliasInput): Promise<void> {
@@ -447,7 +510,43 @@ async function migrateLegacyPresetMonitorIds(
 
   if (changed) {
     await store.setPresets(migratedPresets);
+    await reconcileDefaultPresets();
   }
+}
+
+async function reconcileDefaultPresets(): Promise<void> {
+  const settings = store.getSettings();
+  const nextDefaults: typeof settings.defaultPresets = [];
+  const usedMonitorIds = new Set<string>();
+
+  for (const defaultPreset of settings.defaultPresets) {
+    const preset = settings.presets.find(
+      (item) => item.id === defaultPreset.presetId,
+    );
+
+    if (!preset || usedMonitorIds.has(preset.monitorId)) {
+      continue;
+    }
+
+    usedMonitorIds.add(preset.monitorId);
+    nextDefaults.push({
+      ...defaultPreset,
+      monitorId: preset.monitorId,
+    });
+  }
+
+  if (
+    nextDefaults.length === settings.defaultPresets.length &&
+    nextDefaults.every(
+      (item, index) =>
+        item.monitorId === settings.defaultPresets[index]?.monitorId &&
+        item.presetId === settings.defaultPresets[index]?.presetId,
+    )
+  ) {
+    return;
+  }
+
+  await store.setDefaultPresets(nextDefaults);
 }
 
 function findMonitorForPreset(preset: Preset): MonitorInfo | null {
@@ -522,6 +621,205 @@ function validateMode(
   ) {
     throw new Error(t(currentLocale(), "error.refreshRateInvalid"));
   }
+}
+
+function startProcessWatcher(): void {
+  if (process.platform !== "win32" || processWatchTimer !== null) {
+    return;
+  }
+
+  void evaluateProcessRules();
+  scheduleProcessWatcherTimer();
+}
+
+function scheduleProcessWatcherTimer(): void {
+  if (process.platform !== "win32") {
+    return;
+  }
+
+  clearProcessWatcherTimer();
+  processWatchTimer = setInterval(() => {
+    void evaluateProcessRules();
+  }, store.getSettings().processWatchIntervalMs);
+}
+
+function rescheduleProcessWatcher(): void {
+  if (processWatchTimer === null) {
+    return;
+  }
+
+  scheduleProcessWatcherTimer();
+}
+
+function stopProcessWatcher(): void {
+  clearProcessWatcherTimer();
+  activeProcessPresetIds.clear();
+}
+
+function clearProcessWatcherTimer(): void {
+  if (processWatchTimer === null) {
+    return;
+  }
+
+  clearInterval(processWatchTimer);
+  processWatchTimer = null;
+}
+
+async function evaluateProcessRules(): Promise<void> {
+  if (processWatchInFlight) {
+    return;
+  }
+
+  processWatchInFlight = true;
+
+  try {
+    const runningProcessNames = await listRunningProcessNames();
+    const settings = store.getSettings();
+    const processPresets = settings.presets.filter(
+      (preset) => preset.processName.trim().length > 0,
+    );
+    const processPresetIds = new Set(processPresets.map((preset) => preset.id));
+
+    for (const presetId of Array.from(activeProcessPresetIds)) {
+      if (!processPresetIds.has(presetId)) {
+        activeProcessPresetIds.delete(presetId);
+      }
+    }
+
+    for (const preset of processPresets) {
+      const isRunning = runningProcessNames.has(
+        normalizeProcessImageName(preset.processName),
+      );
+      const isActive = activeProcessPresetIds.has(preset.id);
+
+      if (isRunning && !isActive) {
+        await applyPresetById(preset.id);
+        activeProcessPresetIds.add(preset.id);
+        continue;
+      }
+
+      if (!isRunning && isActive) {
+        activeProcessPresetIds.delete(preset.id);
+
+        if (hasActiveProcessPresetForMonitor(preset.monitorId)) {
+          continue;
+        }
+
+        const defaultPreset = findDefaultPresetForMonitor(preset.monitorId);
+        if (defaultPreset && defaultPreset.id !== preset.id) {
+          await applyPresetById(defaultPreset.id);
+        }
+      }
+    }
+  } catch (error) {
+    const now = Date.now();
+    if (now - processWatchLastErrorAt > PROCESS_WATCH_ERROR_THROTTLE_MS) {
+      processWatchLastErrorAt = now;
+      sendAppError(
+        toAppError(t(currentLocale(), "error.processWatchFailed"), error),
+      );
+    }
+  } finally {
+    processWatchInFlight = false;
+  }
+}
+
+function hasActiveProcessPresetForMonitor(monitorId: string): boolean {
+  const settings = store.getSettings();
+  return settings.presets.some(
+    (preset) =>
+      preset.monitorId === monitorId && activeProcessPresetIds.has(preset.id),
+  );
+}
+
+function findDefaultPresetForMonitor(monitorId: string): Preset | null {
+  const settings = store.getSettings();
+  const defaultPreset = settings.defaultPresets.find(
+    (item) => item.monitorId === monitorId,
+  );
+
+  if (!defaultPreset) {
+    return null;
+  }
+
+  return (
+    settings.presets.find((preset) => preset.id === defaultPreset.presetId) ??
+    null
+  );
+}
+
+async function listRunningProcessNames(): Promise<Set<string>> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("tasklist.exe", ["/fo", "csv", "/nh"], {
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.once("error", reject);
+    child.once("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || `tasklist.exe exited with ${code}`));
+        return;
+      }
+
+      resolve(
+        new Set(
+          stdout
+            .split(/\r?\n/)
+            .map(parseTasklistImageName)
+            .filter((name): name is string => name !== null)
+            .map(normalizeProcessImageName),
+        ),
+      );
+    });
+  });
+}
+
+function parseTasklistImageName(line: string): string | null {
+  const match = /^"((?:[^"]|"")*)"/.exec(line.trim());
+  return match?.[1]?.replace(/""/g, '"') ?? null;
+}
+
+function normalizeProcessImageName(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return "";
+  }
+
+  const fileName = trimmed.split(/[\\/]/).pop() ?? trimmed;
+  const normalized = fileName.toLowerCase();
+  return normalized.endsWith(".exe") ? normalized : `${normalized}.exe`;
+}
+
+function validateProcessWatchIntervalMs(intervalMs: unknown): number {
+  if (typeof intervalMs !== "number" || !Number.isFinite(intervalMs)) {
+    throw new Error(t(currentLocale(), "error.processWatchIntervalInvalid"));
+  }
+
+  const normalizedIntervalMs = Math.round(Number(intervalMs));
+  if (
+    normalizedIntervalMs < MIN_PROCESS_WATCH_INTERVAL_MS ||
+    normalizedIntervalMs > MAX_PROCESS_WATCH_INTERVAL_MS
+  ) {
+    throw new Error(
+      t(currentLocale(), "error.processWatchIntervalInvalidRange", {
+        min: MIN_PROCESS_WATCH_INTERVAL_MS / 1000,
+        max: MAX_PROCESS_WATCH_INTERVAL_MS / 1000,
+      }),
+    );
+  }
+
+  return normalizedIntervalMs;
 }
 
 function showMainWindow(): void {
