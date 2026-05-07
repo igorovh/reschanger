@@ -1,13 +1,14 @@
 import {
   CheckCircle2,
   Monitor,
+  Moon,
   Pencil,
   Play,
   Plus,
   RefreshCw,
   Save,
   Settings,
-  Star,
+  Sun,
   Trash2,
   X,
 } from "lucide-react";
@@ -35,9 +36,16 @@ import type {
   ThemeMode,
 } from "./types";
 
+type RightPanelMode = "list" | "create" | "edit";
+
+type ProcessField = {
+  id: string;
+  value: string;
+};
+
 type FormState = {
   name: string;
-  processName: string;
+  processNames: ProcessField[];
   monitorId: string;
   resolution: string;
   refreshRate: number;
@@ -45,20 +53,14 @@ type FormState = {
   manualWidth: number;
   manualHeight: number;
   manualRefreshRate: number;
+  isDefault: boolean;
 };
 
-type PresetGroup = {
-  key: string;
-  title: string;
-  subtitle: string;
-  currentMode: string | null;
-  presets: Preset[];
-  isMonitorAvailable: boolean;
-};
+let processFieldId = 0;
 
 const emptyState: AppState = {
   settings: {
-    version: 6,
+    version: 7,
     autostart: false,
     restartExplorerAfterApply: false,
     processWatchIntervalMs: DEFAULT_PROCESS_WATCH_INTERVAL_MS,
@@ -74,7 +76,7 @@ const emptyState: AppState = {
 
 const initialForm: FormState = {
   name: nextPresetName(DEFAULT_LOCALE, []),
-  processName: "",
+  processNames: [createProcessField()],
   monitorId: "",
   resolution: "",
   refreshRate: 60,
@@ -82,12 +84,17 @@ const initialForm: FormState = {
   manualWidth: 1920,
   manualHeight: 1080,
   manualRefreshRate: 60,
+  isDefault: false,
 };
 
 export function App(): React.JSX.Element {
   const [state, setState] = useState<AppState>(emptyState);
   const [form, setForm] = useState<FormState>(initialForm);
+  const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>("list");
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
+  const [presetPendingDelete, setPresetPendingDelete] = useState<Preset | null>(
+    null,
+  );
   const [busy, setBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [monitorAliasName, setMonitorAliasName] = useState("");
@@ -161,13 +168,36 @@ export function App(): React.JSX.Element {
       return;
     }
 
-    setForm((current) =>
+    setEditingPresetId(null);
+    setRightPanelMode("list");
+    setForm(
       createFormForMonitor(
         firstMonitor,
-        current.name || nextPresetName(locale, state.settings.presets),
+        nextPresetName(locale, state.settings.presets),
+        false,
       ),
     );
   }, [form.monitorId, locale, state.monitors, state.settings.presets]);
+
+  useEffect(() => {
+    if (!settingsOpen && presetPendingDelete === null) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      setSettingsOpen(false);
+      setPresetPendingDelete(null);
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [presetPendingDelete, settingsOpen]);
 
   const selectedMonitor = useMemo(
     () =>
@@ -175,11 +205,17 @@ export function App(): React.JSX.Element {
     [form.monitorId, state.monitors],
   );
   const selectedMonitorId = selectedMonitor?.id ?? null;
-
   const selectedMonitorIndex = selectedMonitor
     ? state.monitors.findIndex((monitor) => monitor.id === selectedMonitor.id)
     : -1;
-
+  const selectedMonitorDisplayName = selectedMonitor
+    ? getMonitorDisplayName(
+        locale,
+        state.settings,
+        selectedMonitor,
+        selectedMonitorIndex >= 0 ? selectedMonitorIndex : 0,
+      )
+    : "";
   const selectedMonitorTitle = selectedMonitor
     ? getMonitorTitle(
         locale,
@@ -200,9 +236,28 @@ export function App(): React.JSX.Element {
     );
   }, [selectedMonitorId]);
 
-  const presetGroups = useMemo(
-    () => groupPresetsByMonitor(locale, state),
-    [locale, state],
+  const selectedPresets = useMemo(() => {
+    if (!selectedMonitor) {
+      return [];
+    }
+
+    return state.settings.presets.filter((preset) => {
+      const presetMonitor = findMonitorForPreset(
+        state.monitors,
+        state.settings,
+        preset,
+      );
+      return presetMonitor?.id === selectedMonitor.id;
+    });
+  }, [selectedMonitor, state]);
+
+  const unavailablePresets = useMemo(
+    () =>
+      state.settings.presets.filter(
+        (preset) =>
+          findMonitorForPreset(state.monitors, state.settings, preset) === null,
+      ),
+    [state],
   );
 
   const resolutionOptions = useMemo(
@@ -260,31 +315,36 @@ export function App(): React.JSX.Element {
 
     const payload = {
       name: form.name,
-      processName: form.processName,
+      processNames: compactProcessNames(form.processNames),
       monitorId: selectedMonitor.id,
       width: selectedMode.width,
       height: selectedMode.height,
       refreshRate: selectedMode.refreshRate,
+      isDefault: form.isDefault,
     };
 
     if (editingPresetId) {
       await runAction(t(locale, "notice.presetUpdated"), () =>
         api.updatePreset(editingPresetId, payload),
       );
-      cancelEdit();
+      closePresetEditor(selectedMonitor);
       return;
     }
 
     await runAction(t(locale, "notice.presetSaved"), () =>
       api.createPreset(payload),
     );
-    setForm((current) => ({
-      ...current,
-      name: nextPresetName(locale, [
-        ...state.settings.presets,
-        createPreviewPreset(payload, selectedMonitor),
-      ]),
-    }));
+    setForm(
+      createFormForMonitor(
+        selectedMonitor,
+        nextPresetName(locale, [
+          ...state.settings.presets,
+          createPreviewPreset(payload, selectedMonitor),
+        ]),
+        false,
+      ),
+    );
+    setRightPanelMode("list");
   }
 
   async function applyPreset(preset: Preset): Promise<void> {
@@ -294,20 +354,19 @@ export function App(): React.JSX.Element {
     );
   }
 
-  async function setDefaultPreset(preset: Preset): Promise<void> {
-    await runAction(
-      t(locale, "notice.defaultPresetSaved", { name: preset.name }),
-      () => api.setDefaultPreset({ presetId: preset.id }),
-    );
-  }
+  async function confirmDeletePreset(): Promise<void> {
+    if (!presetPendingDelete) {
+      return;
+    }
 
-  async function deletePreset(preset: Preset): Promise<void> {
+    const preset = presetPendingDelete;
     await runAction(
       t(locale, "notice.presetDeleted", { name: preset.name }),
       () => api.deletePreset(preset.id),
     );
-    if (editingPresetId === preset.id) {
-      cancelEdit();
+    setPresetPendingDelete(null);
+    if (editingPresetId === preset.id && selectedMonitor) {
+      closePresetEditor(selectedMonitor);
     }
   }
 
@@ -392,20 +451,6 @@ export function App(): React.JSX.Element {
     );
   }
 
-  async function resetMonitorAlias(): Promise<void> {
-    if (!selectedMonitor) {
-      return;
-    }
-
-    setMonitorAliasName("");
-    await runAction(t(locale, "notice.monitorAliasReset"), () =>
-      api.setMonitorAlias({
-        monitorId: selectedMonitor.id,
-        name: "",
-      }),
-    );
-  }
-
   async function runAction(
     successMessage: string,
     action: () => Promise<AppState>,
@@ -424,6 +469,22 @@ export function App(): React.JSX.Element {
     }
   }
 
+  function beginCreatePreset(): void {
+    if (!selectedMonitor) {
+      return;
+    }
+
+    setEditingPresetId(null);
+    setForm(
+      createFormForMonitor(
+        selectedMonitor,
+        nextPresetName(locale, state.settings.presets),
+        false,
+      ),
+    );
+    setRightPanelMode("create");
+  }
+
   function editPreset(preset: Preset): void {
     const monitor = findMonitorForPreset(
       state.monitors,
@@ -433,7 +494,10 @@ export function App(): React.JSX.Element {
     setEditingPresetId(preset.id);
     setForm({
       name: preset.name,
-      processName: preset.processName,
+      processNames:
+        preset.processNames.length > 0
+          ? preset.processNames.map(createProcessField)
+          : [createProcessField()],
       monitorId: monitor?.id ?? preset.monitorId,
       resolution: `${preset.width}x${preset.height}`,
       refreshRate: preset.refreshRate,
@@ -446,28 +510,31 @@ export function App(): React.JSX.Element {
       manualWidth: preset.width,
       manualHeight: preset.height,
       manualRefreshRate: preset.refreshRate,
+      isDefault: isDefaultPreset(state.settings, preset),
     });
+    setRightPanelMode("edit");
   }
 
-  function cancelEdit(): void {
-    const monitor =
-      state.monitors.find((item) => item.id === form.monitorId) ??
-      state.monitors[0] ??
-      null;
+  function closePresetEditor(
+    monitor: MonitorInfo | null = selectedMonitor,
+  ): void {
     setEditingPresetId(null);
+    setRightPanelMode("list");
     if (monitor) {
       setForm(
         createFormForMonitor(
           monitor,
           nextPresetName(locale, state.settings.presets),
+          false,
         ),
       );
-    } else {
-      setForm({
-        ...initialForm,
-        name: nextPresetName(locale, state.settings.presets),
-      });
+      return;
     }
+
+    setForm({
+      ...initialForm,
+      name: nextPresetName(locale, state.settings.presets),
+    });
   }
 
   function selectMonitor(monitorId: string): void {
@@ -477,12 +544,44 @@ export function App(): React.JSX.Element {
     }
 
     setEditingPresetId(null);
+    setRightPanelMode("list");
     setForm(
       createFormForMonitor(
         monitor,
-        form.name.trim() || nextPresetName(locale, state.settings.presets),
+        nextPresetName(locale, state.settings.presets),
+        false,
       ),
     );
+  }
+
+  function updateProcessName(id: string, value: string): void {
+    setForm((current) => ({
+      ...current,
+      processNames: current.processNames.map((processName) =>
+        processName.id === id ? { ...processName, value } : processName,
+      ),
+    }));
+  }
+
+  function addProcessName(): void {
+    setForm((current) => ({
+      ...current,
+      processNames: [...current.processNames, createProcessField()],
+    }));
+  }
+
+  function removeProcessName(id: string): void {
+    setForm((current) => {
+      const processNames = current.processNames.filter(
+        (processName) => processName.id !== id,
+      );
+
+      return {
+        ...current,
+        processNames:
+          processNames.length > 0 ? processNames : [createProcessField()],
+      };
+    });
   }
 
   function renderPresetItem(
@@ -494,20 +593,22 @@ export function App(): React.JSX.Element {
     return (
       <article className="preset-item" key={preset.id}>
         <div className="preset-main">
-          <strong>{preset.name}</strong>
+          <div className="preset-title-row">
+            <strong>{preset.name}</strong>
+            {isDefault ? (
+              <span className="preset-default-badge">
+                {t(locale, "preset.defaultBadge")}
+              </span>
+            ) : null}
+          </div>
           <span>
             {formatMode(preset.width, preset.height, preset.refreshRate)}
           </span>
-          {preset.processName ? (
+          {preset.processNames.length > 0 ? (
             <span>
-              {t(locale, "preset.processTrigger", {
-                processName: preset.processName,
+              {t(locale, "preset.processTriggers", {
+                processNames: preset.processNames.join(", "),
               })}
-            </span>
-          ) : null}
-          {isDefault ? (
-            <span className="preset-default-badge">
-              {t(locale, "preset.defaultBadge")}
             </span>
           ) : null}
           {!isMonitorAvailable ? (
@@ -515,18 +616,6 @@ export function App(): React.JSX.Element {
           ) : null}
         </div>
         <div className="preset-actions">
-          <button
-            className={`icon-button${isDefault ? " active" : ""}`}
-            type="button"
-            title={t(
-              locale,
-              isDefault ? "preset.defaultSelected" : "action.setDefault",
-            )}
-            onClick={() => void setDefaultPreset(preset)}
-            disabled={!isMonitorAvailable || busy}
-          >
-            <Star size={17} fill={isDefault ? "currentColor" : "none"} />
-          </button>
           <button
             className="icon-button"
             type="button"
@@ -549,7 +638,7 @@ export function App(): React.JSX.Element {
             className="icon-button danger"
             type="button"
             title={t(locale, "action.delete")}
-            onClick={() => void deletePreset(preset)}
+            onClick={() => setPresetPendingDelete(preset)}
             disabled={busy}
           >
             <Trash2 size={17} />
@@ -559,27 +648,232 @@ export function App(): React.JSX.Element {
     );
   }
 
-  function renderPresetGroup(group: PresetGroup): React.JSX.Element {
+  function renderPresetEditor(): React.JSX.Element {
     return (
-      <section
-        className={`monitor-preset-group${
-          group.isMonitorAvailable ? "" : " unavailable"
-        }`}
-        key={group.key}
-      >
-        <div className="monitor-preset-heading">
+      <section className="preset-editor">
+        <div className="panel-section-heading">
           <div>
-            <h3>{group.title}</h3>
-            <span>{group.subtitle}</span>
+            <h3>
+              {rightPanelMode === "edit"
+                ? t(locale, "form.editPreset")
+                : t(locale, "form.newPreset")}
+            </h3>
+            <span className="heading-meta">{selectedMonitorDisplayName}</span>
           </div>
-          {group.currentMode ? (
-            <span className="monitor-current-mode">{group.currentMode}</span>
-          ) : null}
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => closePresetEditor()}
+            disabled={busy}
+          >
+            <X size={17} />
+            <span>{t(locale, "action.backToPresets")}</span>
+          </button>
         </div>
-        <div className="preset-list">
-          {group.presets.map((preset) =>
-            renderPresetItem(preset, group.isMonitorAvailable),
-          )}
+
+        <div className="field">
+          <label htmlFor="preset-name">{t(locale, "field.name")}</label>
+          <input
+            id="preset-name"
+            value={form.name}
+            onChange={(event) =>
+              setForm({ ...form, name: event.currentTarget.value })
+            }
+            placeholder={nextPresetName(locale, [])}
+          />
+        </div>
+
+        <div className="process-fieldset">
+          <div className="fieldset-heading">
+            <span className="fieldset-label">
+              {t(locale, "field.processNames")}
+            </span>
+            <button
+              className="secondary-button compact"
+              type="button"
+              onClick={addProcessName}
+              disabled={busy}
+            >
+              <Plus size={16} />
+              <span>{t(locale, "action.addProcess")}</span>
+            </button>
+          </div>
+          <div className="process-list">
+            {form.processNames.map((processName) => (
+              <div className="process-row" key={processName.id}>
+                <input
+                  value={processName.value}
+                  onChange={(event) =>
+                    updateProcessName(processName.id, event.currentTarget.value)
+                  }
+                  placeholder={t(locale, "form.processPlaceholder")}
+                  disabled={busy}
+                />
+                <button
+                  className="icon-button"
+                  type="button"
+                  onClick={() => removeProcessName(processName.id)}
+                  disabled={busy || form.processNames.length === 1}
+                  title={t(locale, "action.removeProcess")}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={form.isDefault}
+            onChange={(event) =>
+              setForm({ ...form, isDefault: event.currentTarget.checked })
+            }
+            disabled={busy}
+          />
+          <span>{t(locale, "form.defaultPreset")}</span>
+        </label>
+
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={form.manualMode}
+            onChange={(event) =>
+              setForm({ ...form, manualMode: event.currentTarget.checked })
+            }
+            disabled={busy}
+          />
+          <span>{t(locale, "form.manualMode")}</span>
+        </label>
+
+        {form.manualMode ? (
+          <div className="triple-grid">
+            <div className="field">
+              <label htmlFor="manual-width">{t(locale, "field.width")}</label>
+              <input
+                id="manual-width"
+                type="number"
+                min={640}
+                max={10000}
+                value={form.manualWidth}
+                onChange={(event) =>
+                  setForm({
+                    ...form,
+                    manualWidth: Number(event.currentTarget.value),
+                  })
+                }
+                disabled={busy}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="manual-height">{t(locale, "field.height")}</label>
+              <input
+                id="manual-height"
+                type="number"
+                min={480}
+                max={10000}
+                value={form.manualHeight}
+                onChange={(event) =>
+                  setForm({
+                    ...form,
+                    manualHeight: Number(event.currentTarget.value),
+                  })
+                }
+                disabled={busy}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="manual-refresh">Hz</label>
+              <input
+                id="manual-refresh"
+                type="number"
+                min={30}
+                max={1000}
+                value={form.manualRefreshRate}
+                onChange={(event) =>
+                  setForm({
+                    ...form,
+                    manualRefreshRate: Number(event.currentTarget.value),
+                  })
+                }
+                disabled={busy}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="double-grid">
+            <div className="field">
+              <label htmlFor="resolution">
+                {t(locale, "field.resolution")}
+              </label>
+              <select
+                id="resolution"
+                value={form.resolution}
+                onChange={(event) =>
+                  setForm({ ...form, resolution: event.currentTarget.value })
+                }
+                disabled={busy}
+              >
+                {resolutionOptions.map((resolution) => (
+                  <option key={resolution} value={resolution}>
+                    {resolution}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="refresh-rate">
+                {t(locale, "field.refreshRate")}
+              </label>
+              <select
+                id="refresh-rate"
+                value={form.refreshRate}
+                onChange={(event) =>
+                  setForm({
+                    ...form,
+                    refreshRate: Number(event.currentTarget.value),
+                  })
+                }
+                disabled={busy}
+              >
+                {refreshOptions.map((refreshRate) => (
+                  <option key={refreshRate} value={refreshRate}>
+                    {refreshRate} Hz
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+
+        <div className="actions">
+          <button
+            className="primary-button"
+            type="button"
+            onClick={() => void savePreset()}
+            disabled={!canSave || busy}
+          >
+            {rightPanelMode === "edit" ? (
+              <Save size={18} />
+            ) : (
+              <Plus size={18} />
+            )}
+            <span>
+              {rightPanelMode === "edit"
+                ? t(locale, "action.saveChanges")
+                : t(locale, "action.addPreset")}
+            </span>
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => closePresetEditor()}
+            disabled={busy}
+          >
+            <X size={18} />
+            <span>{t(locale, "action.cancel")}</span>
+          </button>
         </div>
       </section>
     );
@@ -588,11 +882,37 @@ export function App(): React.JSX.Element {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div>
-          <h1>reschanger</h1>
-          <p>{t(locale, "app.subtitle")}</p>
+        <div className="brand">
+          <span className="brand-logo" aria-hidden="true" />
+          <div>
+            <h1>reschanger</h1>
+            <p>{t(locale, "app.subtitle")}</p>
+          </div>
         </div>
         <div className="topbar-actions">
+          <fieldset className="theme-toggle">
+            <legend>{t(locale, "field.themeMode")}</legend>
+            <button
+              className={themeMode === "light" ? "active" : ""}
+              type="button"
+              onClick={() => void setThemeMode("light")}
+              disabled={busy}
+              title={t(locale, "theme.light")}
+            >
+              <Sun size={16} />
+              <span>{t(locale, "theme.light")}</span>
+            </button>
+            <button
+              className={themeMode === "dark" ? "active" : ""}
+              type="button"
+              onClick={() => void setThemeMode("dark")}
+              disabled={busy}
+              title={t(locale, "theme.dark")}
+            >
+              <Moon size={16} />
+              <span>{t(locale, "theme.dark")}</span>
+            </button>
+          </fieldset>
           <button
             className="icon-button"
             type="button"
@@ -602,20 +922,17 @@ export function App(): React.JSX.Element {
           >
             <Settings size={18} />
           </button>
-          <button
-            className="icon-button"
-            type="button"
-            onClick={() => void refreshMonitors()}
-            disabled={busy}
-            title={t(locale, "action.refreshMonitors")}
-          >
-            <RefreshCw size={18} />
-          </button>
         </div>
       </header>
 
       {settingsOpen ? (
-        <div className="modal-backdrop" role="presentation">
+        <div className="modal-backdrop">
+          <button
+            className="modal-dismiss-layer"
+            type="button"
+            onClick={() => setSettingsOpen(false)}
+            aria-label={t(locale, "action.cancel")}
+          />
           <section
             className="settings-modal"
             id="settings-panel"
@@ -721,6 +1038,62 @@ export function App(): React.JSX.Element {
         </div>
       ) : null}
 
+      {presetPendingDelete ? (
+        <div className="modal-backdrop">
+          <button
+            className="modal-dismiss-layer"
+            type="button"
+            onClick={() => setPresetPendingDelete(null)}
+            aria-label={t(locale, "action.cancel")}
+          />
+          <section
+            className="confirm-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-preset-title"
+          >
+            <div className="settings-modal-header">
+              <h2 id="delete-preset-title">
+                {t(locale, "confirm.deletePresetTitle")}
+              </h2>
+              <button
+                className="icon-button"
+                type="button"
+                onClick={() => setPresetPendingDelete(null)}
+                title={t(locale, "action.cancel")}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p>
+              {t(locale, "confirm.deletePresetMessage", {
+                name: presetPendingDelete.name,
+              })}
+            </p>
+            <div className="modal-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => setPresetPendingDelete(null)}
+                disabled={busy}
+              >
+                <X size={18} />
+                <span>{t(locale, "action.cancel")}</span>
+              </button>
+              <button
+                className="danger-button"
+                type="button"
+                onClick={() => void confirmDeletePreset()}
+                disabled={busy}
+              >
+                <Trash2 size={18} />
+                <span>{t(locale, "confirm.deletePresetConfirm")}</span>
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       <section className="status-row" aria-live="polite">
         {error ? (
           <div className="status error">
@@ -735,272 +1108,177 @@ export function App(): React.JSX.Element {
         )}
       </section>
 
-      <section className="panel monitor-picker-panel">
-        <div className="field monitor-picker-field">
-          <label htmlFor="active-monitor">{t(locale, "field.monitor")}</label>
-          <select
-            id="active-monitor"
-            value={form.monitorId}
-            onChange={(event) => selectMonitor(event.currentTarget.value)}
-            disabled={busy || state.monitors.length === 0}
-          >
-            {state.monitors.length === 0 ? (
-              <option value="">{t(locale, "empty.noMonitors")}</option>
-            ) : null}
-            {state.monitors.map((monitor, index) => (
-              <option key={monitor.id} value={monitor.id}>
-                {getMonitorDisplayName(locale, state.settings, monitor, index)}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="field monitor-alias-field">
-          <label htmlFor="monitor-alias">
-            {t(locale, "field.monitorAlias")}
-          </label>
-          <div className="monitor-alias-row">
-            <input
-              id="monitor-alias"
-              value={monitorAliasName}
-              onChange={(event) =>
-                setMonitorAliasName(event.currentTarget.value)
-              }
-              placeholder={selectedMonitorTitle}
-              disabled={!selectedMonitor || busy}
-            />
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={() => void saveMonitorAlias()}
-              disabled={!selectedMonitor || busy}
-            >
-              <Save size={17} />
-              <span>{t(locale, "action.save")}</span>
-            </button>
+      <div className="workspace-layout">
+        <aside className="monitor-sidebar">
+          <div className="sidebar-heading">
+            <div>
+              <h2>{t(locale, "nav.monitors")}</h2>
+            </div>
             <button
               className="icon-button"
               type="button"
-              onClick={() => void resetMonitorAlias()}
-              disabled={
-                !selectedMonitor || busy || monitorAliasName.length === 0
-              }
-              title={t(locale, "action.reset")}
+              onClick={() => void refreshMonitors()}
+              disabled={busy}
+              title={t(locale, "action.refreshMonitors")}
             >
-              <X size={17} />
+              <RefreshCw size={18} />
             </button>
           </div>
-        </div>
-        {selectedMonitor ? (
-          <div className="monitor-picker-meta">
-            <span>{selectedMonitorTitle}</span>
-            <span>{selectedMonitor.name}</span>
-            <span>{selectedMonitor.deviceName}</span>
-            <span>
-              {t(locale, "form.currentMode", {
-                mode: formatMode(
-                  selectedMonitor.current.width,
-                  selectedMonitor.current.height,
-                  selectedMonitor.current.refreshRate,
-                ),
-              })}
-            </span>
-          </div>
-        ) : null}
-      </section>
-
-      <div className="content-grid">
-        <section className="panel">
-          <div className="panel-heading">
-            <Monitor size={20} />
-            <h2>
-              {editingPresetId
-                ? t(locale, "form.editPreset")
-                : t(locale, "form.newPreset")}
-            </h2>
-          </div>
-
-          <div className="field">
-            <label htmlFor="preset-name">{t(locale, "field.name")}</label>
-            <input
-              id="preset-name"
-              value={form.name}
-              onChange={(event) =>
-                setForm({ ...form, name: event.currentTarget.value })
-              }
-              placeholder={nextPresetName(locale, [])}
-            />
-          </div>
-
-          <div className="field">
-            <label htmlFor="preset-process">
-              {t(locale, "field.processName")}
-            </label>
-            <input
-              id="preset-process"
-              value={form.processName}
-              onChange={(event) =>
-                setForm({ ...form, processName: event.currentTarget.value })
-              }
-              placeholder={t(locale, "form.processPlaceholder")}
-            />
-          </div>
-
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={form.manualMode}
-              onChange={(event) =>
-                setForm({ ...form, manualMode: event.currentTarget.checked })
-              }
-            />
-            <span>{t(locale, "form.manualMode")}</span>
-          </label>
-
-          {form.manualMode ? (
-            <div className="triple-grid">
-              <div className="field">
-                <label htmlFor="manual-width">{t(locale, "field.width")}</label>
-                <input
-                  id="manual-width"
-                  type="number"
-                  min={640}
-                  max={10000}
-                  value={form.manualWidth}
-                  onChange={(event) =>
-                    setForm({
-                      ...form,
-                      manualWidth: Number(event.currentTarget.value),
-                    })
-                  }
-                />
+          <nav
+            className="monitor-nav-list"
+            aria-label={t(locale, "nav.monitors")}
+          >
+            {state.monitors.length === 0 ? (
+              <div className="empty-state compact">
+                {t(locale, "empty.noMonitors")}
               </div>
-              <div className="field">
-                <label htmlFor="manual-height">
-                  {t(locale, "field.height")}
-                </label>
-                <input
-                  id="manual-height"
-                  type="number"
-                  min={480}
-                  max={10000}
-                  value={form.manualHeight}
-                  onChange={(event) =>
-                    setForm({
-                      ...form,
-                      manualHeight: Number(event.currentTarget.value),
-                    })
-                  }
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="manual-refresh">Hz</label>
-                <input
-                  id="manual-refresh"
-                  type="number"
-                  min={30}
-                  max={1000}
-                  value={form.manualRefreshRate}
-                  onChange={(event) =>
-                    setForm({
-                      ...form,
-                      manualRefreshRate: Number(event.currentTarget.value),
-                    })
-                  }
-                />
-              </div>
-            </div>
-          ) : (
-            <div className="double-grid">
-              <div className="field">
-                <label htmlFor="resolution">
-                  {t(locale, "field.resolution")}
-                </label>
-                <select
-                  id="resolution"
-                  value={form.resolution}
-                  onChange={(event) =>
-                    setForm({ ...form, resolution: event.currentTarget.value })
-                  }
-                >
-                  {resolutionOptions.map((resolution) => (
-                    <option key={resolution} value={resolution}>
-                      {resolution}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="field">
-                <label htmlFor="refresh-rate">
-                  {t(locale, "field.refreshRate")}
-                </label>
-                <select
-                  id="refresh-rate"
-                  value={form.refreshRate}
-                  onChange={(event) =>
-                    setForm({
-                      ...form,
-                      refreshRate: Number(event.currentTarget.value),
-                    })
-                  }
-                >
-                  {refreshOptions.map((refreshRate) => (
-                    <option key={refreshRate} value={refreshRate}>
-                      {refreshRate} Hz
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
-
-          <div className="actions">
-            <button
-              className="primary-button"
-              type="button"
-              onClick={() => void savePreset()}
-              disabled={!canSave || busy}
-            >
-              {editingPresetId ? <Save size={18} /> : <Plus size={18} />}
-              <span>
-                {editingPresetId
-                  ? t(locale, "action.saveChanges")
-                  : t(locale, "action.addPreset")}
-              </span>
-            </button>
-            {editingPresetId ? (
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={cancelEdit}
-                disabled={busy}
-              >
-                <X size={18} />
-                <span>{t(locale, "action.cancel")}</span>
-              </button>
             ) : null}
-          </div>
-        </section>
+            {state.monitors.map((monitor, index) => {
+              const isActive = monitor.id === selectedMonitorId;
+              return (
+                <button
+                  className={`monitor-nav-item${isActive ? " active" : ""}`}
+                  key={monitor.id}
+                  type="button"
+                  onClick={() => selectMonitor(monitor.id)}
+                  disabled={busy}
+                >
+                  <Monitor size={18} />
+                  <span>
+                    <strong>
+                      {getMonitorDisplayName(
+                        locale,
+                        state.settings,
+                        monitor,
+                        index,
+                      )}
+                    </strong>
+                    <small>
+                      {formatMode(
+                        monitor.current.width,
+                        monitor.current.height,
+                        monitor.current.refreshRate,
+                      )}
+                    </small>
+                  </span>
+                </button>
+              );
+            })}
+          </nav>
+        </aside>
 
-        <section className="panel">
-          <div className="panel-heading">
-            <Save size={20} />
-            <h2>{t(locale, "preset.savedPresets")}</h2>
-          </div>
+        <section className="main-panel">
+          {selectedMonitor ? (
+            <>
+              <div className="main-panel-header">
+                <div>
+                  <h2>{selectedMonitorDisplayName}</h2>
+                  <p>
+                    {selectedMonitor.name} · {selectedMonitor.deviceName}
+                  </p>
+                </div>
+                <span className="monitor-current-mode">
+                  {t(locale, "form.currentMode", {
+                    mode: formatMode(
+                      selectedMonitor.current.width,
+                      selectedMonitor.current.height,
+                      selectedMonitor.current.refreshRate,
+                    ),
+                  })}
+                </span>
+              </div>
 
-          <div className="monitor-preset-list">
-            {presetGroups.length > 0 ? (
-              presetGroups.map(renderPresetGroup)
-            ) : (
-              <div className="empty-state">{t(locale, "empty.noPresets")}</div>
-            )}
-          </div>
+              <div className="alias-row">
+                <label htmlFor="monitor-alias">
+                  {t(locale, "field.monitorAlias")}
+                </label>
+                <div className="alias-controls">
+                  <input
+                    id="monitor-alias"
+                    value={monitorAliasName}
+                    onChange={(event) =>
+                      setMonitorAliasName(event.currentTarget.value)
+                    }
+                    placeholder={selectedMonitorTitle}
+                    disabled={busy}
+                  />
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => void saveMonitorAlias()}
+                    disabled={busy}
+                  >
+                    <Save size={17} />
+                    <span>{t(locale, "action.save")}</span>
+                  </button>
+                </div>
+              </div>
+
+              {rightPanelMode === "list" ? (
+                <section className="preset-list-section">
+                  <div className="panel-section-heading">
+                    <div>
+                      <h3>{t(locale, "preset.savedPresets")}</h3>
+                    </div>
+                    <button
+                      className="primary-button"
+                      type="button"
+                      onClick={beginCreatePreset}
+                      disabled={busy}
+                    >
+                      <Plus size={18} />
+                      <span>{t(locale, "action.newPreset")}</span>
+                    </button>
+                  </div>
+
+                  <div className="preset-list">
+                    {selectedPresets.length > 0 ? (
+                      selectedPresets.map((preset) =>
+                        renderPresetItem(preset, true),
+                      )
+                    ) : (
+                      <div className="empty-state">
+                        {t(locale, "preset.noMonitorPresets")}
+                      </div>
+                    )}
+                  </div>
+
+                  {unavailablePresets.length > 0 ? (
+                    <div className="unavailable-presets">
+                      <div className="panel-section-heading compact-heading">
+                        <div>
+                          <h3>{t(locale, "preset.unavailableGroup")}</h3>
+                          <span className="heading-meta">
+                            {t(locale, "preset.monitorUnavailable")}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="preset-list">
+                        {unavailablePresets.map((preset) =>
+                          renderPresetItem(preset, false),
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+                </section>
+              ) : (
+                renderPresetEditor()
+              )}
+            </>
+          ) : (
+            <div className="empty-state">{t(locale, "empty.noMonitors")}</div>
+          )}
         </section>
       </div>
     </main>
   );
 }
 
-function createFormForMonitor(monitor: MonitorInfo, name: string): FormState {
+function createFormForMonitor(
+  monitor: MonitorInfo,
+  name: string,
+  isDefault: boolean,
+): FormState {
   const currentResolution = `${monitor.current.width}x${monitor.current.height}`;
   const modeExists = monitor.modes.some(
     (mode) =>
@@ -1011,7 +1289,7 @@ function createFormForMonitor(monitor: MonitorInfo, name: string): FormState {
 
   return {
     name,
-    processName: "",
+    processNames: [createProcessField()],
     monitorId: monitor.id,
     resolution: modeExists
       ? currentResolution
@@ -1021,6 +1299,7 @@ function createFormForMonitor(monitor: MonitorInfo, name: string): FormState {
     manualWidth: monitor.current.width,
     manualHeight: monitor.current.height,
     manualRefreshRate: monitor.current.refreshRate,
+    isDefault,
   };
 }
 
@@ -1060,6 +1339,20 @@ function parseResolution(resolution: string): {
   };
 }
 
+function createProcessField(value = ""): ProcessField {
+  processFieldId += 1;
+  return {
+    id: `process-field-${processFieldId}`,
+    value,
+  };
+}
+
+function compactProcessNames(processNames: ProcessField[]): string[] {
+  return processNames
+    .map((processName) => processName.value)
+    .filter((processName) => processName.trim().length > 0);
+}
+
 function nextPresetName(locale: Locale, presets: Preset[]): string {
   return t(locale, "preset.defaultName", { number: presets.length + 1 });
 }
@@ -1086,7 +1379,7 @@ function createPreviewPreset(
     width: number;
     height: number;
     refreshRate: number;
-    processName?: string;
+    processNames?: string[];
   },
   monitor: MonitorInfo,
 ): Preset {
@@ -1099,7 +1392,7 @@ function createPreviewPreset(
     width: input.width,
     height: input.height,
     refreshRate: input.refreshRate,
-    processName: input.processName ?? "",
+    processNames: input.processNames ?? [],
     createdAt: now,
     updatedAt: now,
   };
@@ -1163,62 +1456,6 @@ function parseDisplayNumber(deviceName: string): number | null {
 
   const value = Number(match[1]);
   return Number.isInteger(value) && value > 0 ? value : null;
-}
-
-function groupPresetsByMonitor(locale: Locale, state: AppState): PresetGroup[] {
-  const groups: PresetGroup[] = [];
-  const assignedPresetIds = new Set<string>();
-
-  state.monitors.forEach((monitor, index) => {
-    const presets = state.settings.presets.filter((preset) => {
-      const presetMonitor = findMonitorForPreset(
-        state.monitors,
-        state.settings,
-        preset,
-      );
-      return presetMonitor?.id === monitor.id;
-    });
-
-    if (presets.length === 0) {
-      return;
-    }
-
-    for (const preset of presets) {
-      assignedPresetIds.add(preset.id);
-    }
-
-    groups.push({
-      key: monitor.id,
-      title: getMonitorDisplayName(locale, state.settings, monitor, index),
-      subtitle: monitor.name,
-      currentMode: t(locale, "form.currentMode", {
-        mode: formatMode(
-          monitor.current.width,
-          monitor.current.height,
-          monitor.current.refreshRate,
-        ),
-      }),
-      presets,
-      isMonitorAvailable: true,
-    });
-  });
-
-  const unavailablePresets = state.settings.presets.filter(
-    (preset) => !assignedPresetIds.has(preset.id),
-  );
-
-  if (unavailablePresets.length > 0) {
-    groups.push({
-      key: "unavailable",
-      title: t(locale, "preset.unavailableGroup"),
-      subtitle: t(locale, "preset.monitorUnavailable"),
-      currentMode: null,
-      presets: unavailablePresets,
-      isMonitorAvailable: false,
-    });
-  }
-
-  return groups;
 }
 
 function findMonitorForPreset(

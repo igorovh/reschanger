@@ -1,0 +1,7 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="reschanger expand frame logo">
+  <g fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="27" y="31" width="46" height="38" rx="6"/>
+    <path d="M 23 70 L 23 77 L 30 77"/>
+    <path d="M 77 30 L 77 23 L 70 23"/>
+  </g>
+</svg>

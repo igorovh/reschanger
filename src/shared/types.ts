@@ -39,7 +39,7 @@ export type Preset = {
   width: number;
   height: number;
   refreshRate: number;
-  processName: string;
+  processNames: string[];
   createdAt: string;
   updatedAt: string;
 };
@@ -51,7 +51,7 @@ export type DefaultPreset = {
 };
 
 export type AppSettings = {
-  version: 6;
+  version: 7;
   autostart: boolean;
   restartExplorerAfterApply: boolean;
   processWatchIntervalMs: number;
@@ -74,7 +74,8 @@ export type CreatePresetInput = {
   width: number;
   height: number;
   refreshRate: number;
-  processName?: string;
+  processNames?: string[];
+  isDefault?: boolean;
 };
 
 export type UpdatePresetInput = Partial<CreatePresetInput>;
