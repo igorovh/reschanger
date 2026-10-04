@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 import {
   formatMode,
   isLocale,
@@ -29,7 +29,7 @@ import {
 } from "../shared/types";
 import { applyDisplayMode, listMonitors } from "./display/windowsDisplay";
 import { SettingsStore } from "./store";
-import { attachWindowHideToTray, TrayController } from "./tray";
+import { attachWindowHideToTray, createAppIcon, TrayController } from "./tray";
 
 let mainWindow: BrowserWindow | null = null;
 let shouldQuit = false;
@@ -45,6 +45,11 @@ const activeProcessPresetIds = new Set<string>();
 const EXPLORER_RESTART_DELAY_MS = 3000;
 const PROCESS_WATCH_ERROR_THROTTLE_MS = 60000;
 
+type PresetApplication = {
+  preset: Preset;
+  monitor: MonitorInfo;
+};
+
 const singleInstanceLock = app.requestSingleInstanceLock();
 
 if (!singleInstanceLock) {
@@ -55,6 +60,7 @@ if (!singleInstanceLock) {
   });
 
   app.whenReady().then(async () => {
+    Menu.setApplicationMenu(null);
     store = new SettingsStore();
     await store.load();
     syncAutostartWithSettings();
@@ -103,6 +109,8 @@ function createMainWindow(): void {
     minHeight: 620,
     show: false,
     title: "reschanger",
+    icon: createAppIcon(32),
+    autoHideMenuBar: true,
     backgroundColor: "#f8fafc",
     webPreferences: {
       preload: join(__dirname, "../preload/preload.cjs"),
@@ -111,6 +119,7 @@ function createMainWindow(): void {
       sandbox: false,
     },
   });
+  mainWindow.setMenu(null);
 
   attachWindowHideToTray(mainWindow, () => shouldQuit);
 
@@ -141,6 +150,9 @@ function registerIpcHandlers(): void {
   ipcMain.handle("presets:create", async (_event, input: CreatePresetInput) => {
     const preset = buildPreset(input);
     await store.setPresets([...store.getSettings().presets, preset]);
+    if (input.isDefault === true) {
+      await setDefaultPreset({ presetId: preset.id });
+    }
     broadcastState();
     trayController.rebuild();
     return getState();
@@ -162,7 +174,7 @@ function registerIpcHandlers(): void {
         width: input.width ?? preset.width,
         height: input.height ?? preset.height,
         refreshRate: input.refreshRate ?? preset.refreshRate,
-        processName: input.processName ?? preset.processName,
+        processNames: input.processNames ?? preset.processNames,
       };
 
       const updatedPreset = {
@@ -174,6 +186,11 @@ function registerIpcHandlers(): void {
       await store.setPresets(
         settings.presets.map((item) => (item.id === id ? updatedPreset : item)),
       );
+      if (input.isDefault === true) {
+        await setDefaultPreset({ presetId: updatedPreset.id });
+      } else if (input.isDefault === false) {
+        await unsetDefaultPresetForPreset(updatedPreset.id);
+      }
       await reconcileDefaultPresets();
       broadcastState();
       trayController.rebuild();
@@ -301,40 +318,61 @@ async function refreshMonitorsInternal(
 }
 
 async function applyPresetById(id: string): Promise<void> {
-  const preset = store.getSettings().presets.find((item) => item.id === id);
+  await applyPresetBatch([id]);
+}
 
-  if (!preset) {
-    throw new Error(t(currentLocale(), "error.presetMissing"));
+async function applyPresetBatch(ids: Iterable<string>): Promise<void> {
+  const settings = store.getSettings();
+  const applicationsByMonitorId = new Map<string, PresetApplication>();
+
+  for (const id of ids) {
+    const preset = settings.presets.find((item) => item.id === id);
+
+    if (!preset) {
+      throw new Error(t(currentLocale(), "error.presetMissing"));
+    }
+
+    const monitor = findMonitorForPreset(preset);
+    if (!monitor) {
+      throw new Error(
+        t(currentLocale(), "error.monitorUnavailable", { name: preset.name }),
+      );
+    }
+
+    applicationsByMonitorId.set(preset.monitorId, { preset, monitor });
   }
 
-  const monitor = findMonitorForPreset(preset);
-  if (!monitor) {
-    throw new Error(
-      t(currentLocale(), "error.monitorUnavailable", { name: preset.name }),
+  const applications = Array.from(applicationsByMonitorId.values());
+  if (applications.length === 0) {
+    return;
+  }
+
+  for (const { preset, monitor } of applications) {
+    await applyDisplayMode(
+      monitor.deviceName,
+      preset.width,
+      preset.height,
+      preset.refreshRate,
+      currentLocale(),
     );
   }
 
-  await applyDisplayMode(
-    monitor.deviceName,
-    preset.width,
-    preset.height,
-    preset.refreshRate,
-    currentLocale(),
-  );
   scheduleExplorerRestartAfterApply();
   await refreshMonitorsInternal(false);
   trayController.rebuild();
   broadcastState();
 
-  const result: ApplyPresetResult = {
-    presetId: preset.id,
-    presetName: preset.name,
-    message: t(currentLocale(), "message.presetApplied", {
-      mode: formatMode(preset.width, preset.height, preset.refreshRate),
-      monitorName: getMonitorDisplayName(monitor),
-    }),
-  };
-  mainWindow?.webContents.send("preset:applied", result);
+  for (const { preset, monitor } of applications) {
+    const result: ApplyPresetResult = {
+      presetId: preset.id,
+      presetName: preset.name,
+      message: t(currentLocale(), "message.presetApplied", {
+        mode: formatMode(preset.width, preset.height, preset.refreshRate),
+        monitorName: getMonitorDisplayName(monitor),
+      }),
+    };
+    mainWindow?.webContents.send("preset:applied", result);
+  }
 }
 
 function canApplyPresetById(id: string): boolean {
@@ -364,7 +402,7 @@ function buildPreset(input: CreatePresetInput, previous?: Preset): Preset {
     width: input.width,
     height: input.height,
     refreshRate: input.refreshRate,
-    processName: normalizeProcessImageName(input.processName ?? ""),
+    processNames: normalizeProcessImageNames(input.processNames ?? []),
     createdAt: previous?.createdAt ?? now,
     updatedAt: now,
   };
@@ -389,6 +427,13 @@ async function setDefaultPreset(input: SetDefaultPresetInput): Promise<void> {
       updatedAt: now,
     },
   ]);
+}
+
+async function unsetDefaultPresetForPreset(presetId: string): Promise<void> {
+  const settings = store.getSettings();
+  await store.setDefaultPresets(
+    settings.defaultPresets.filter((item) => item.presetId !== presetId),
+  );
 }
 
 async function setMonitorAlias(input: SetMonitorAliasInput): Promise<void> {
@@ -676,41 +721,51 @@ async function evaluateProcessRules(): Promise<void> {
     const runningProcessNames = await listRunningProcessNames();
     const settings = store.getSettings();
     const processPresets = settings.presets.filter(
-      (preset) => preset.processName.trim().length > 0,
+      (preset) => preset.processNames.length > 0,
     );
     const processPresetIds = new Set(processPresets.map((preset) => preset.id));
+    const changedMonitorIds = new Set<string>();
 
     for (const presetId of Array.from(activeProcessPresetIds)) {
       if (!processPresetIds.has(presetId)) {
+        const preset = settings.presets.find((item) => item.id === presetId);
+        if (preset) {
+          changedMonitorIds.add(preset.monitorId);
+        }
         activeProcessPresetIds.delete(presetId);
       }
     }
 
     for (const preset of processPresets) {
-      const isRunning = runningProcessNames.has(
-        normalizeProcessImageName(preset.processName),
+      const isRunning = preset.processNames.some((processName) =>
+        runningProcessNames.has(normalizeProcessImageName(processName)),
       );
       const isActive = activeProcessPresetIds.has(preset.id);
 
       if (isRunning && !isActive) {
-        await applyPresetById(preset.id);
         activeProcessPresetIds.add(preset.id);
+        changedMonitorIds.add(preset.monitorId);
         continue;
       }
 
       if (!isRunning && isActive) {
         activeProcessPresetIds.delete(preset.id);
-
-        if (hasActiveProcessPresetForMonitor(preset.monitorId)) {
-          continue;
-        }
-
-        const defaultPreset = findDefaultPresetForMonitor(preset.monitorId);
-        if (defaultPreset && defaultPreset.id !== preset.id) {
-          await applyPresetById(defaultPreset.id);
-        }
+        changedMonitorIds.add(preset.monitorId);
       }
     }
+
+    const targetPresetIdsByMonitor = new Map<string, string>();
+    for (const monitorId of changedMonitorIds) {
+      const targetPreset =
+        findActiveProcessPresetForMonitor(monitorId, processPresets) ??
+        findDefaultPresetForMonitor(monitorId);
+
+      if (targetPreset) {
+        targetPresetIdsByMonitor.set(monitorId, targetPreset.id);
+      }
+    }
+
+    await applyPresetBatch(targetPresetIdsByMonitor.values());
   } catch (error) {
     const now = Date.now();
     if (now - processWatchLastErrorAt > PROCESS_WATCH_ERROR_THROTTLE_MS) {
@@ -724,12 +779,23 @@ async function evaluateProcessRules(): Promise<void> {
   }
 }
 
-function hasActiveProcessPresetForMonitor(monitorId: string): boolean {
-  const settings = store.getSettings();
-  return settings.presets.some(
-    (preset) =>
-      preset.monitorId === monitorId && activeProcessPresetIds.has(preset.id),
+function findActiveProcessPresetForMonitor(
+  monitorId: string,
+  processPresets: Preset[],
+): Preset | null {
+  const processPresetById = new Map(
+    processPresets.map((preset) => [preset.id, preset]),
   );
+  let targetPreset: Preset | null = null;
+
+  for (const presetId of activeProcessPresetIds) {
+    const preset = processPresetById.get(presetId);
+    if (preset?.monitorId === monitorId) {
+      targetPreset = preset;
+    }
+  }
+
+  return targetPreset;
 }
 
 function findDefaultPresetForMonitor(monitorId: string): Preset | null {
@@ -788,6 +854,19 @@ async function listRunningProcessNames(): Promise<Set<string>> {
 function parseTasklistImageName(line: string): string | null {
   const match = /^"((?:[^"]|"")*)"/.exec(line.trim());
   return match?.[1]?.replace(/""/g, '"') ?? null;
+}
+
+function normalizeProcessImageNames(values: string[]): string[] {
+  const processNames = new Set<string>();
+
+  for (const value of values) {
+    const normalized = normalizeProcessImageName(value);
+    if (normalized.length > 0) {
+      processNames.add(normalized);
+    }
+  }
+
+  return Array.from(processNames);
 }
 
 function normalizeProcessImageName(value: string): string {

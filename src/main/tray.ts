@@ -36,7 +36,7 @@ export class TrayController {
       return;
     }
 
-    this.tray = new Tray(createTrayIcon());
+    this.tray = new Tray(createAppIcon(16));
     this.tray.setToolTip("reschanger");
     this.tray.on("double-click", () => {
       this.options.showWindow();
@@ -300,51 +300,107 @@ function parseDisplayNumber(deviceName: string): number | null {
   return Number.isInteger(value) && value > 0 ? value : null;
 }
 
-function createTrayIcon(): NativeImage {
-  const image = nativeImage.createFromBitmap(createIconBitmap(), {
-    width: 16,
-    height: 16,
-    scaleFactor: 1,
-  });
+export function createAppIcon(size: number): NativeImage {
+  const svgImage = nativeImage
+    .createFromDataURL(createLogoSvgDataUrl(size))
+    .resize({ width: size, height: size, quality: "best" });
+
+  const image = svgImage.isEmpty()
+    ? nativeImage.createFromBitmap(createLogoBitmap(size), {
+        width: size,
+        height: size,
+        scaleFactor: 1,
+      })
+    : svgImage;
 
   image.setTemplateImage(false);
   return image;
 }
 
-function createIconBitmap(): Buffer {
-  const width = 16;
-  const height = 16;
-  const buffer = Buffer.alloc(width * height * 4);
+function createLogoSvgDataUrl(size: number): string {
+  const svg = `<svg width="${size}" height="${size}" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="reschanger expand frame logo"><g fill="none" stroke="#2563eb" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><rect x="27" y="31" width="46" height="38" rx="6"/><path d="M 23 70 L 23 77 L 30 77"/><path d="M 77 30 L 77 23 L 70 23"/></g></svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
 
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const offset = (y * width + x) * 4;
-      const isBorder =
-        x === 1 || x === width - 2 || y === 2 || y === height - 4;
-      const isStand =
-        (x >= 6 && x <= 9 && y >= 12) || (x >= 4 && x <= 11 && y === 14);
-      const isScreen = x > 1 && x < width - 2 && y > 2 && y < height - 4;
+function createLogoBitmap(size: number): Buffer {
+  const buffer = Buffer.alloc(size * size * 4);
+  const strokeWidth = Math.max(1, Math.round(size * 0.06));
+  const color: [number, number, number, number] = [37, 99, 235, 255];
 
-      if (isBorder || isStand) {
-        buffer[offset] = 245;
-        buffer[offset + 1] = 247;
-        buffer[offset + 2] = 250;
-        buffer[offset + 3] = 255;
-      } else if (isScreen) {
-        buffer[offset] = 37;
-        buffer[offset + 1] = 99;
-        buffer[offset + 2] = 235;
-        buffer[offset + 3] = 255;
-      } else {
-        buffer[offset] = 0;
-        buffer[offset + 1] = 0;
-        buffer[offset + 2] = 0;
-        buffer[offset + 3] = 0;
+  drawRect(buffer, size, 27, 31, 73, 69, strokeWidth, color);
+  drawLine(buffer, size, 23, 70, 23, 77, strokeWidth, color);
+  drawLine(buffer, size, 23, 77, 30, 77, strokeWidth, color);
+  drawLine(buffer, size, 77, 30, 77, 23, strokeWidth, color);
+  drawLine(buffer, size, 77, 23, 70, 23, strokeWidth, color);
+  return buffer;
+}
+
+function drawRect(
+  buffer: Buffer,
+  size: number,
+  left: number,
+  top: number,
+  right: number,
+  bottom: number,
+  strokeWidth: number,
+  color: [number, number, number, number],
+): void {
+  drawLine(buffer, size, left, top, right, top, strokeWidth, color);
+  drawLine(buffer, size, right, top, right, bottom, strokeWidth, color);
+  drawLine(buffer, size, right, bottom, left, bottom, strokeWidth, color);
+  drawLine(buffer, size, left, bottom, left, top, strokeWidth, color);
+}
+
+function drawLine(
+  buffer: Buffer,
+  size: number,
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number,
+  strokeWidth: number,
+  color: [number, number, number, number],
+): void {
+  const x1 = scaleLogoCoordinate(startX, size);
+  const y1 = scaleLogoCoordinate(startY, size);
+  const x2 = scaleLogoCoordinate(endX, size);
+  const y2 = scaleLogoCoordinate(endY, size);
+  const steps = Math.max(Math.abs(x2 - x1), Math.abs(y2 - y1), 1);
+
+  for (let step = 0; step <= steps; step += 1) {
+    const x = Math.round(x1 + ((x2 - x1) * step) / steps);
+    const y = Math.round(y1 + ((y2 - y1) * step) / steps);
+    drawPoint(buffer, size, x, y, strokeWidth, color);
+  }
+}
+
+function drawPoint(
+  buffer: Buffer,
+  size: number,
+  centerX: number,
+  centerY: number,
+  strokeWidth: number,
+  color: [number, number, number, number],
+): void {
+  const radius = Math.floor(strokeWidth / 2);
+
+  for (let y = centerY - radius; y <= centerY + radius; y += 1) {
+    for (let x = centerX - radius; x <= centerX + radius; x += 1) {
+      if (x < 0 || x >= size || y < 0 || y >= size) {
+        continue;
       }
+
+      const offset = (y * size + x) * 4;
+      buffer[offset] = color[0];
+      buffer[offset + 1] = color[1];
+      buffer[offset + 2] = color[2];
+      buffer[offset + 3] = color[3];
     }
   }
+}
 
-  return buffer;
+function scaleLogoCoordinate(value: number, size: number): number {
+  return Math.round((value / 100) * (size - 1));
 }
 
 function showTrayError(error: unknown, locale: Locale): void {

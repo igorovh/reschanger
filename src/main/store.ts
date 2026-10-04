@@ -22,7 +22,7 @@ import {
   MIN_PROCESS_WATCH_INTERVAL_MS,
 } from "../shared/types";
 
-const SETTINGS_VERSION = 6;
+const SETTINGS_VERSION = 7;
 
 const DEFAULT_SETTINGS: AppSettings = {
   version: SETTINGS_VERSION,
@@ -278,11 +278,41 @@ function normalizePreset(value: unknown): Preset | null {
     width: value.width,
     height: value.height,
     refreshRate: value.refreshRate,
-    processName:
-      typeof value.processName === "string" ? value.processName.trim() : "",
+    processNames: normalizeProcessImageNames(value),
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
   };
+}
+
+function normalizeProcessImageNames(value: Record<string, unknown>): string[] {
+  const rawValues = Array.isArray(value.processNames)
+    ? value.processNames
+    : [value.processName];
+  const processNames = new Set<string>();
+
+  for (const rawValue of rawValues) {
+    if (typeof rawValue !== "string") {
+      continue;
+    }
+
+    const normalized = normalizeProcessImageName(rawValue);
+    if (normalized.length > 0) {
+      processNames.add(normalized);
+    }
+  }
+
+  return Array.from(processNames);
+}
+
+function normalizeProcessImageName(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return "";
+  }
+
+  const fileName = trimmed.split(/[\\/]/).pop() ?? trimmed;
+  const normalized = fileName.toLowerCase();
+  return normalized.endsWith(".exe") ? normalized : `${normalized}.exe`;
 }
 
 function isPreset(value: Preset | null): value is Preset {
