@@ -4,6 +4,8 @@ version = "0.0.0"
 description = "Windows tray utility for quickly changing monitor resolution and refresh rate."
 edition = "2024"
 publish = false
+license = "GPL-3.0-only"
+authors = ["igorovh"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

@@ -1,6 +1,18 @@
-# reschanger
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/banner-dark.svg">
+    <img src=".github/assets/banner-light.svg" alt="reschanger: switch resolution, refresh rate and digital vibrance from the Windows tray" width="100%">
+  </picture>
+</p>
 
-A lightweight Windows tray app for quickly switching monitor resolution and refresh rate. Built with Tauri v2 (Rust + WebView2), with automatic updates.
+<p align="center">
+  <a href="https://github.com/igorovh/reschanger/releases/latest"><img src="https://img.shields.io/github/v/release/igorovh/reschanger?style=flat-square&color=6d28d9" alt="Latest release"></a>
+  <a href="https://github.com/igorovh/reschanger/releases"><img src="https://img.shields.io/github/downloads/igorovh/reschanger/total?style=flat-square&color=2563eb" alt="Downloads"></a>
+  <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4?style=flat-square" alt="Windows 10 and 11">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/igorovh/reschanger?style=flat-square&color=475569" alt="License: GPL-3.0"></a>
+</p>
+
+A lightweight Windows tray app for quickly switching monitor resolution, refresh rate and digital vibrance (NVIDIA and AMD), automatically when a game starts or with one click. Built with Tauri v2 (Rust + WebView2), with automatic updates.
 
 ## Download and install
 
@@ -77,3 +89,7 @@ Settings and presets (same format as the Electron version):
 ```text
 %APPDATA%\reschanger\settings.json
 ```
+
+## License
+
+reschanger is free software released under the [GNU General Public License v3.0](LICENSE). You can use, study, share and modify it, but if you distribute a modified version, it must stay open source under the same license.

@@ -4,7 +4,8 @@
   "description": "Windows tray utility for quickly changing monitor resolution and refresh rate.",
   "type": "module",
   "private": true,
-  "author": "reschanger",
+  "author": "igorovh",
+  "license": "GPL-3.0-only",
   "scripts": {
     "dev": "tauri dev",
     "dev:web": "vite",
