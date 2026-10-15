@@ -1,5 +1,6 @@
 import {
   CheckCircle2,
+  Download,
   Monitor,
   Moon,
   Pencil,
@@ -72,6 +73,8 @@ const emptyState: AppState = {
     presets: [],
   },
   monitors: [],
+  appVersion: "",
+  availableUpdate: null,
 };
 
 const initialForm: FormState = {
@@ -102,6 +105,7 @@ export function App(): React.JSX.Element {
     t(DEFAULT_LOCALE, "notice.loadingSettings"),
   );
   const [error, setError] = useState<string | null>(null);
+  const [installingUpdate, setInstallingUpdate] = useState(false);
   const settingsRef = useRef(state.settings);
   const locale = state.settings.language;
   const themeMode = state.settings.themeMode;
@@ -435,6 +439,41 @@ export function App(): React.JSX.Element {
       setError(toMessage(themeError, locale));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function checkForUpdates(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    setNotice(t(locale, "update.checking"));
+
+    try {
+      const result = await api.checkForUpdates();
+      setState(result.state);
+      setNotice(
+        result.updateAvailable && result.state.availableUpdate
+          ? t(locale, "update.available", {
+              version: result.state.availableUpdate.version,
+            })
+          : t(locale, "update.upToDate"),
+      );
+    } catch (updateError) {
+      setError(toMessage(updateError, locale));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function installUpdate(): Promise<void> {
+    setInstallingUpdate(true);
+    setError(null);
+    setNotice(t(locale, "update.installing"));
+
+    try {
+      await api.installUpdate();
+    } catch (updateError) {
+      setError(toMessage(updateError, locale));
+      setInstallingUpdate(false);
     }
   }
 
@@ -1033,6 +1072,22 @@ export function App(): React.JSX.Element {
                   />
                 </label>
               </details>
+              <div className="settings-row settings-version-row">
+                <span>
+                  {t(locale, "settings.version", {
+                    version: state.appVersion,
+                  })}
+                </span>
+                <button
+                  className="secondary-button compact"
+                  type="button"
+                  onClick={() => void checkForUpdates()}
+                  disabled={busy || installingUpdate}
+                >
+                  <RefreshCw size={16} />
+                  <span>{t(locale, "update.check")}</span>
+                </button>
+              </div>
             </div>
           </section>
         </div>
@@ -1095,6 +1150,28 @@ export function App(): React.JSX.Element {
       ) : null}
 
       <section className="status-row" aria-live="polite">
+        {state.availableUpdate ? (
+          <div className="update-banner">
+            <Download size={18} />
+            <span>
+              {t(locale, "update.available", {
+                version: state.availableUpdate.version,
+              })}
+            </span>
+            <button
+              className="primary-button compact"
+              type="button"
+              onClick={() => void installUpdate()}
+              disabled={installingUpdate}
+            >
+              <span>
+                {installingUpdate
+                  ? t(locale, "update.installing")
+                  : t(locale, "update.install")}
+              </span>
+            </button>
+          </div>
+        ) : null}
         {error ? (
           <div className="status error">
             <X size={18} />
