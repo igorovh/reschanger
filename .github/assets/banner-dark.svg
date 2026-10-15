@@ -4,37 +4,27 @@
       <stop offset="0" stop-color="#2563EB"/>
       <stop offset="1" stop-color="#7C3AED"/>
     </linearGradient>
-    <radialGradient id="glow" cx="1080" cy="40" r="520" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#7C3AED" stop-opacity="0.35"/>
-      <stop offset="1" stop-color="#7C3AED" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="glow2" cx="160" cy="320" r="420" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#2563EB" stop-opacity="0.28"/>
-      <stop offset="1" stop-color="#2563EB" stop-opacity="0"/>
-    </radialGradient>
   </defs>
-  <rect width="1280" height="320" rx="28" fill="#0B0D14"/>
-  <rect width="1280" height="320" rx="28" fill="url(#glow)"/>
-  <rect width="1280" height="320" rx="28" fill="url(#glow2)"/>
+  <rect width="1280" height="320" rx="28" fill="#11131C"/>
   <rect x="0.5" y="0.5" width="1279" height="319" rx="27.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.08"/>
-  <g transform="translate(96 64) scale(0.15)">
+  <g transform="translate(112 64) scale(0.15)">
     <rect width="1280" height="1280" rx="290" fill="url(#icon)"/>
     <rect x="240" y="340" width="800" height="600" rx="80" fill="#FFFFFF" fill-opacity="0.22"/>
     <rect x="370" y="437" width="540" height="405" rx="60" fill="#FFFFFF" fill-opacity="0.55"/>
     <rect x="500" y="535" width="280" height="210" rx="40" fill="#FFFFFF"/>
   </g>
   <g font-family="'Segoe UI', Inter, system-ui, -apple-system, sans-serif">
-    <text x="336" y="160" fill="#F5F7FF" font-size="84" font-weight="800" letter-spacing="-1.5">reschanger</text>
-    <text x="340" y="214" fill="#A5ADC6" font-size="28" font-weight="500">Switch resolution, refresh rate and digital vibrance from the tray.</text>
+    <text x="352" y="134" fill="#F5F7FF" font-size="84" font-weight="800" letter-spacing="-1.5">reschanger</text>
+    <text x="356" y="188" fill="#A5ADC6" font-size="28" font-weight="500">Switch resolution, refresh rate and digital vibrance from the tray.</text>
     <g font-size="18" font-weight="650" fill="#C7CEF5">
-      <rect x="340" y="240" width="122" height="34" rx="17" fill="#FFFFFF" fill-opacity="0.07" stroke="#FFFFFF" stroke-opacity="0.12"/>
-      <text x="401" y="263" text-anchor="middle">Windows</text>
-      <rect x="474" y="240" width="152" height="34" rx="17" fill="#FFFFFF" fill-opacity="0.07" stroke="#FFFFFF" stroke-opacity="0.12"/>
-      <text x="550" y="263" text-anchor="middle">NVIDIA + AMD</text>
-      <rect x="638" y="240" width="140" height="34" rx="17" fill="#FFFFFF" fill-opacity="0.07" stroke="#FFFFFF" stroke-opacity="0.12"/>
-      <text x="708" y="263" text-anchor="middle">Auto-update</text>
-      <rect x="790" y="240" width="94" height="34" rx="17" fill="#FFFFFF" fill-opacity="0.07" stroke="#FFFFFF" stroke-opacity="0.12"/>
-      <text x="837" y="263" text-anchor="middle">~2 MB</text>
+      <rect x="356" y="214" width="122" height="34" rx="17" fill="#FFFFFF" fill-opacity="0.07" stroke="#FFFFFF" stroke-opacity="0.12"/>
+      <text x="417" y="237" text-anchor="middle">Windows</text>
+      <rect x="490" y="214" width="152" height="34" rx="17" fill="#FFFFFF" fill-opacity="0.07" stroke="#FFFFFF" stroke-opacity="0.12"/>
+      <text x="566" y="237" text-anchor="middle">NVIDIA + AMD</text>
+      <rect x="654" y="214" width="140" height="34" rx="17" fill="#FFFFFF" fill-opacity="0.07" stroke="#FFFFFF" stroke-opacity="0.12"/>
+      <text x="724" y="237" text-anchor="middle">Auto-update</text>
+      <rect x="806" y="214" width="94" height="34" rx="17" fill="#FFFFFF" fill-opacity="0.07" stroke="#FFFFFF" stroke-opacity="0.12"/>
+      <text x="853" y="237" text-anchor="middle">~2 MB</text>
     </g>
   </g>
 </svg>
