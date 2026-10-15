@@ -1,15 +1,22 @@
 import {
+  ArrowLeft,
+  Check,
   CheckCircle2,
+  Copy,
   Download,
   Monitor,
   Moon,
   Pencil,
   Play,
   Plus,
+  Power,
   RefreshCw,
   Save,
   Settings,
+  SlidersHorizontal,
+  Sparkles,
   Sun,
+  SunMoon,
   Trash2,
   X,
 } from "lucide-react";
@@ -25,7 +32,9 @@ import {
 import {
   DEFAULT_PROCESS_WATCH_INTERVAL_MS,
   MAX_PROCESS_WATCH_INTERVAL_MS,
+  MAX_VIBRANCE,
   MIN_PROCESS_WATCH_INTERVAL_MS,
+  MIN_VIBRANCE,
 } from "../../shared/types";
 import { api } from "./api";
 import type {
@@ -54,6 +63,8 @@ type FormState = {
   manualWidth: number;
   manualHeight: number;
   manualRefreshRate: number;
+  vibranceEnabled: boolean;
+  vibrance: number;
   isDefault: boolean;
 };
 
@@ -87,6 +98,8 @@ const initialForm: FormState = {
   manualWidth: 1920,
   manualHeight: 1080,
   manualRefreshRate: 60,
+  vibranceEnabled: false,
+  vibrance: MIN_VIBRANCE,
   isDefault: false,
 };
 
@@ -106,6 +119,7 @@ export function App(): React.JSX.Element {
   );
   const [error, setError] = useState<string | null>(null);
   const [installingUpdate, setInstallingUpdate] = useState(false);
+  const [errorCopied, setErrorCopied] = useState(false);
   const settingsRef = useRef(state.settings);
   const locale = state.settings.language;
   const themeMode = state.settings.themeMode;
@@ -193,8 +207,11 @@ export function App(): React.JSX.Element {
         return;
       }
 
+      if (presetPendingDelete) {
+        setPresetPendingDelete(null);
+        return;
+      }
       setSettingsOpen(false);
-      setPresetPendingDelete(null);
     }
 
     window.addEventListener("keydown", handleKeyDown);
@@ -324,6 +341,7 @@ export function App(): React.JSX.Element {
       width: selectedMode.width,
       height: selectedMode.height,
       refreshRate: selectedMode.refreshRate,
+      vibrance: form.vibranceEnabled ? form.vibrance : null,
       isDefault: form.isDefault,
     };
 
@@ -442,6 +460,22 @@ export function App(): React.JSX.Element {
     }
   }
 
+  async function copyError(): Promise<void> {
+    if (!error) {
+      return;
+    }
+
+    const details = [
+      error,
+      "",
+      `reschanger ${state.appVersion}`,
+      new Date().toISOString(),
+    ].join("\n");
+    await copyText(details);
+    setErrorCopied(true);
+    window.setTimeout(() => setErrorCopied(false), 2000);
+  }
+
   async function checkForUpdates(): Promise<void> {
     setBusy(true);
     setError(null);
@@ -549,6 +583,8 @@ export function App(): React.JSX.Element {
       manualWidth: preset.width,
       manualHeight: preset.height,
       manualRefreshRate: preset.refreshRate,
+      vibranceEnabled: preset.vibrance !== null,
+      vibrance: preset.vibrance ?? MIN_VIBRANCE,
       isDefault: isDefaultPreset(state.settings, preset),
     });
     setRightPanelMode("edit");
@@ -643,6 +679,11 @@ export function App(): React.JSX.Element {
           <span>
             {formatMode(preset.width, preset.height, preset.refreshRate)}
           </span>
+          {preset.vibrance !== null ? (
+            <span>
+              {t(locale, "preset.vibrance", { value: preset.vibrance })}
+            </span>
+          ) : null}
           {preset.processNames.length > 0 ? (
             <span>
               {t(locale, "preset.processTriggers", {
@@ -886,6 +927,53 @@ export function App(): React.JSX.Element {
           </div>
         )}
 
+        <div className="vibrance-fieldset">
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={
+                form.vibranceEnabled && selectedMonitor?.vibrance !== null
+              }
+              onChange={(event) =>
+                setForm({
+                  ...form,
+                  vibranceEnabled: event.currentTarget.checked,
+                })
+              }
+              disabled={busy || selectedMonitor?.vibrance === null}
+            />
+            <Sparkles size={16} />
+            <span>{t(locale, "form.setVibrance")}</span>
+          </label>
+          {selectedMonitor?.vibrance === null ? (
+            <p className="field-hint">
+              {t(locale, "form.vibranceUnsupported")}
+            </p>
+          ) : form.vibranceEnabled ? (
+            <>
+              <div className="vibrance-slider">
+                <input
+                  type="range"
+                  min={MIN_VIBRANCE}
+                  max={MAX_VIBRANCE}
+                  step={1}
+                  value={form.vibrance}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      vibrance: Number(event.currentTarget.value),
+                    })
+                  }
+                  aria-label={t(locale, "field.vibrance")}
+                  disabled={busy}
+                />
+                <output>{form.vibrance}%</output>
+              </div>
+              <p className="field-hint">{t(locale, "form.vibranceHint")}</p>
+            </>
+          ) : null}
+        </div>
+
         <div className="actions">
           <button
             className="primary-button"
@@ -918,6 +1006,194 @@ export function App(): React.JSX.Element {
     );
   }
 
+  function renderSettingsPage(): React.JSX.Element {
+    return (
+      <section className="settings-page" aria-labelledby="settings-title">
+        <div className="settings-page-header">
+          <button
+            className="icon-button"
+            type="button"
+            onClick={() => setSettingsOpen(false)}
+            title={t(locale, "settings.back")}
+          >
+            <ArrowLeft size={18} />
+          </button>
+          <div>
+            <h2 id="settings-title">{t(locale, "settings.title")}</h2>
+            <p>{t(locale, "settings.subtitle")}</p>
+          </div>
+        </div>
+
+        <div className="settings-sections">
+          <section className="settings-card">
+            <h3>
+              <SlidersHorizontal className="settings-card-icon" size={16} />
+              {t(locale, "settings.section.general")}
+            </h3>
+            <div className="settings-item">
+              <div className="settings-item-text">
+                <label htmlFor="settings-language">
+                  {t(locale, "field.language")}
+                </label>
+                <p>{t(locale, "language.description")}</p>
+              </div>
+              <select
+                id="settings-language"
+                className="settings-control"
+                value={locale}
+                onChange={(event) =>
+                  void setLanguage(event.currentTarget.value as Locale)
+                }
+                disabled={busy}
+              >
+                {LOCALES.map((language) => (
+                  <option key={language} value={language}>
+                    {languageLabel(locale, language)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="settings-item">
+              <div className="settings-item-text">
+                <span className="settings-item-label">
+                  {t(locale, "field.themeMode")}
+                </span>
+                <p>{t(locale, "theme.description")}</p>
+              </div>
+              <ThemeSwitch
+                locale={locale}
+                value={themeMode}
+                onChange={(theme) => void setThemeMode(theme)}
+                disabled={busy}
+                showLabels
+              />
+            </div>
+          </section>
+
+          <section className="settings-card">
+            <h3>
+              <Power className="settings-card-icon" size={16} />
+              {t(locale, "settings.section.behavior")}
+            </h3>
+            <label className="settings-item">
+              <div className="settings-item-text">
+                <span className="settings-item-label">
+                  {t(locale, "autostart.label")}
+                </span>
+                <p>{t(locale, "autostart.description")}</p>
+              </div>
+              <span className="switch">
+                <input
+                  type="checkbox"
+                  checked={state.settings.autostart}
+                  onChange={(event) =>
+                    void setAutostart(event.currentTarget.checked)
+                  }
+                  disabled={busy}
+                />
+                <span className="switch-track" />
+              </span>
+            </label>
+            <label className="settings-item">
+              <div className="settings-item-text">
+                <span className="settings-item-label">
+                  {t(locale, "explorerRestart.label")}
+                </span>
+                <p>{t(locale, "explorerRestart.description")}</p>
+              </div>
+              <span className="switch">
+                <input
+                  type="checkbox"
+                  checked={state.settings.restartExplorerAfterApply}
+                  onChange={(event) =>
+                    void setRestartExplorerAfterApply(
+                      event.currentTarget.checked,
+                    )
+                  }
+                  disabled={busy}
+                />
+                <span className="switch-track" />
+              </span>
+            </label>
+            <div className="settings-item">
+              <div className="settings-item-text">
+                <label htmlFor="settings-process-interval">
+                  {t(locale, "processWatchInterval.label")}
+                </label>
+                <p>{t(locale, "processWatchInterval.description")}</p>
+              </div>
+              <div className="settings-control input-with-unit">
+                <input
+                  id="settings-process-interval"
+                  type="number"
+                  min={MIN_PROCESS_WATCH_INTERVAL_MS / 1000}
+                  max={MAX_PROCESS_WATCH_INTERVAL_MS / 1000}
+                  step={0.25}
+                  value={state.settings.processWatchIntervalMs / 1000}
+                  onChange={(event) =>
+                    void setProcessWatchIntervalSeconds(
+                      event.currentTarget.value,
+                    )
+                  }
+                  disabled={busy}
+                />
+                <span>{t(locale, "processWatchInterval.unit")}</span>
+              </div>
+            </div>
+          </section>
+
+          <section className="settings-card">
+            <h3>
+              <Download className="settings-card-icon" size={16} />
+              {t(locale, "settings.section.updates")}
+            </h3>
+            <div className="settings-item">
+              <div className="settings-item-text">
+                <span className="settings-item-label">
+                  {t(locale, "settings.version", {
+                    version: state.appVersion,
+                  })}
+                </span>
+                <p>
+                  {state.availableUpdate
+                    ? t(locale, "update.available", {
+                        version: state.availableUpdate.version,
+                      })
+                    : t(locale, "update.description")}
+                </p>
+              </div>
+              {state.availableUpdate ? (
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={() => void installUpdate()}
+                  disabled={installingUpdate}
+                >
+                  <Download size={17} />
+                  <span>
+                    {installingUpdate
+                      ? t(locale, "update.installing")
+                      : t(locale, "update.install")}
+                  </span>
+                </button>
+              ) : (
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => void checkForUpdates()}
+                  disabled={busy || installingUpdate}
+                >
+                  <RefreshCw size={17} />
+                  <span>{t(locale, "update.check")}</span>
+                </button>
+              )}
+            </div>
+          </section>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -929,170 +1205,23 @@ export function App(): React.JSX.Element {
           </div>
         </div>
         <div className="topbar-actions">
-          <fieldset className="theme-toggle">
-            <legend>{t(locale, "field.themeMode")}</legend>
-            <button
-              className={themeMode === "light" ? "active" : ""}
-              type="button"
-              onClick={() => void setThemeMode("light")}
-              disabled={busy}
-              title={t(locale, "theme.light")}
-            >
-              <Sun size={16} />
-              <span>{t(locale, "theme.light")}</span>
-            </button>
-            <button
-              className={themeMode === "dark" ? "active" : ""}
-              type="button"
-              onClick={() => void setThemeMode("dark")}
-              disabled={busy}
-              title={t(locale, "theme.dark")}
-            >
-              <Moon size={16} />
-              <span>{t(locale, "theme.dark")}</span>
-            </button>
-          </fieldset>
-          <button
-            className="icon-button"
-            type="button"
-            onClick={() => setSettingsOpen(true)}
+          <ThemeSwitch
+            locale={locale}
+            value={themeMode}
+            onChange={(theme) => void setThemeMode(theme)}
             disabled={busy}
+          />
+          <button
+            className={`icon-button${settingsOpen ? " active" : ""}`}
+            type="button"
+            onClick={() => setSettingsOpen((open) => !open)}
+            aria-pressed={settingsOpen}
             title={t(locale, "settings.open")}
           >
             <Settings size={18} />
           </button>
         </div>
       </header>
-
-      {settingsOpen ? (
-        <div className="modal-backdrop">
-          <button
-            className="modal-dismiss-layer"
-            type="button"
-            onClick={() => setSettingsOpen(false)}
-            aria-label={t(locale, "action.cancel")}
-          />
-          <section
-            className="settings-modal"
-            id="settings-panel"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="settings-title"
-          >
-            <div className="settings-modal-header">
-              <h2 id="settings-title">{t(locale, "settings.title")}</h2>
-              <button
-                className="icon-button"
-                type="button"
-                onClick={() => setSettingsOpen(false)}
-                title={t(locale, "action.cancel")}
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <div className="settings-modal-body">
-              <label className="settings-row">
-                <span>{t(locale, "field.language")}</span>
-                <select
-                  value={locale}
-                  onChange={(event) =>
-                    void setLanguage(event.currentTarget.value as Locale)
-                  }
-                  disabled={busy}
-                >
-                  {LOCALES.map((language) => (
-                    <option key={language} value={language}>
-                      {languageLabel(locale, language)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="settings-row">
-                <span>{t(locale, "field.themeMode")}</span>
-                <select
-                  value={themeMode}
-                  onChange={(event) =>
-                    void setThemeMode(event.currentTarget.value as ThemeMode)
-                  }
-                  disabled={busy}
-                >
-                  {THEME_MODES.map((theme) => (
-                    <option key={theme} value={theme}>
-                      {themeModeLabel(locale, theme)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="settings-row switch-row">
-                <span>{t(locale, "autostart.label")}</span>
-                <span className="switch">
-                  <input
-                    type="checkbox"
-                    checked={state.settings.autostart}
-                    onChange={(event) =>
-                      void setAutostart(event.currentTarget.checked)
-                    }
-                    disabled={busy}
-                  />
-                  <span className="switch-track" />
-                </span>
-              </label>
-              <label className="settings-row switch-row">
-                <span>{t(locale, "explorerRestart.label")}</span>
-                <span className="switch">
-                  <input
-                    type="checkbox"
-                    checked={state.settings.restartExplorerAfterApply}
-                    onChange={(event) =>
-                      void setRestartExplorerAfterApply(
-                        event.currentTarget.checked,
-                      )
-                    }
-                    disabled={busy}
-                  />
-                  <span className="switch-track" />
-                </span>
-              </label>
-              <details className="settings-advanced">
-                <summary>{t(locale, "settings.advanced")}</summary>
-                <label className="settings-row">
-                  <span>{t(locale, "processWatchInterval.label")}</span>
-                  <input
-                    type="number"
-                    min={MIN_PROCESS_WATCH_INTERVAL_MS / 1000}
-                    max={MAX_PROCESS_WATCH_INTERVAL_MS / 1000}
-                    step={0.25}
-                    value={state.settings.processWatchIntervalMs / 1000}
-                    onChange={(event) =>
-                      void setProcessWatchIntervalSeconds(
-                        event.currentTarget.value,
-                      )
-                    }
-                    disabled={busy}
-                  />
-                </label>
-              </details>
-              <div className="settings-row settings-version-row">
-                <span>
-                  {t(locale, "settings.version", {
-                    version: state.appVersion,
-                  })}
-                </span>
-                <button
-                  className="secondary-button compact"
-                  type="button"
-                  onClick={() => void checkForUpdates()}
-                  disabled={busy || installingUpdate}
-                >
-                  <RefreshCw size={16} />
-                  <span>{t(locale, "update.check")}</span>
-                </button>
-              </div>
-            </div>
-          </section>
-        </div>
-      ) : null}
-
       {presetPendingDelete ? (
         <div className="modal-backdrop">
           <button
@@ -1176,6 +1305,19 @@ export function App(): React.JSX.Element {
           <div className="status error">
             <X size={18} />
             <span>{error}</span>
+            <button
+              className="status-copy"
+              type="button"
+              onClick={() => void copyError()}
+              title={t(locale, "action.copyError")}
+            >
+              {errorCopied ? <Check size={15} /> : <Copy size={15} />}
+              <span>
+                {errorCopied
+                  ? t(locale, "notice.errorCopied")
+                  : t(locale, "action.copyError")}
+              </span>
+            </button>
           </div>
         ) : (
           <div className="status success">
@@ -1185,168 +1327,181 @@ export function App(): React.JSX.Element {
         )}
       </section>
 
-      <div className="workspace-layout">
-        <aside className="monitor-sidebar">
-          <div className="sidebar-heading">
-            <div>
-              <h2>{t(locale, "nav.monitors")}</h2>
+      {settingsOpen ? (
+        renderSettingsPage()
+      ) : (
+        <div className="workspace-layout">
+          <aside className="monitor-sidebar">
+            <div className="sidebar-heading">
+              <div>
+                <h2>{t(locale, "nav.monitors")}</h2>
+              </div>
+              <button
+                className="icon-button"
+                type="button"
+                onClick={() => void refreshMonitors()}
+                disabled={busy}
+                title={t(locale, "action.refreshMonitors")}
+              >
+                <RefreshCw size={18} />
+              </button>
             </div>
-            <button
-              className="icon-button"
-              type="button"
-              onClick={() => void refreshMonitors()}
-              disabled={busy}
-              title={t(locale, "action.refreshMonitors")}
+            <nav
+              className="monitor-nav-list"
+              aria-label={t(locale, "nav.monitors")}
             >
-              <RefreshCw size={18} />
-            </button>
-          </div>
-          <nav
-            className="monitor-nav-list"
-            aria-label={t(locale, "nav.monitors")}
-          >
-            {state.monitors.length === 0 ? (
-              <div className="empty-state compact">
-                {t(locale, "empty.noMonitors")}
-              </div>
-            ) : null}
-            {state.monitors.map((monitor, index) => {
-              const isActive = monitor.id === selectedMonitorId;
-              return (
-                <button
-                  className={`monitor-nav-item${isActive ? " active" : ""}`}
-                  key={monitor.id}
-                  type="button"
-                  onClick={() => selectMonitor(monitor.id)}
-                  disabled={busy}
-                >
-                  <Monitor size={18} />
-                  <span>
-                    <strong>
-                      {getMonitorDisplayName(
-                        locale,
-                        state.settings,
-                        monitor,
-                        index,
-                      )}
-                    </strong>
-                    <small>
-                      {formatMode(
-                        monitor.current.width,
-                        monitor.current.height,
-                        monitor.current.refreshRate,
-                      )}
-                    </small>
-                  </span>
-                </button>
-              );
-            })}
-          </nav>
-        </aside>
-
-        <section className="main-panel">
-          {selectedMonitor ? (
-            <>
-              <div className="main-panel-header">
-                <div>
-                  <h2>{selectedMonitorDisplayName}</h2>
-                  <p>
-                    {selectedMonitor.name} · {selectedMonitor.deviceName}
-                  </p>
+              {state.monitors.length === 0 ? (
+                <div className="empty-state compact">
+                  {t(locale, "empty.noMonitors")}
                 </div>
-                <span className="monitor-current-mode">
-                  {t(locale, "form.currentMode", {
-                    mode: formatMode(
-                      selectedMonitor.current.width,
-                      selectedMonitor.current.height,
-                      selectedMonitor.current.refreshRate,
-                    ),
-                  })}
-                </span>
-              </div>
-
-              <div className="alias-row">
-                <label htmlFor="monitor-alias">
-                  {t(locale, "field.monitorAlias")}
-                </label>
-                <div className="alias-controls">
-                  <input
-                    id="monitor-alias"
-                    value={monitorAliasName}
-                    onChange={(event) =>
-                      setMonitorAliasName(event.currentTarget.value)
-                    }
-                    placeholder={selectedMonitorTitle}
-                    disabled={busy}
-                  />
+              ) : null}
+              {state.monitors.map((monitor, index) => {
+                const isActive = monitor.id === selectedMonitorId;
+                return (
                   <button
-                    className="secondary-button"
+                    className={`monitor-nav-item${isActive ? " active" : ""}`}
+                    key={monitor.id}
                     type="button"
-                    onClick={() => void saveMonitorAlias()}
+                    onClick={() => selectMonitor(monitor.id)}
                     disabled={busy}
                   >
-                    <Save size={17} />
-                    <span>{t(locale, "action.save")}</span>
+                    <Monitor size={18} />
+                    <span>
+                      <strong>
+                        {getMonitorDisplayName(
+                          locale,
+                          state.settings,
+                          monitor,
+                          index,
+                        )}
+                      </strong>
+                      <small>
+                        {formatMode(
+                          monitor.current.width,
+                          monitor.current.height,
+                          monitor.current.refreshRate,
+                        )}
+                      </small>
+                    </span>
                   </button>
-                </div>
-              </div>
+                );
+              })}
+            </nav>
+          </aside>
 
-              {rightPanelMode === "list" ? (
-                <section className="preset-list-section">
-                  <div className="panel-section-heading">
-                    <div>
-                      <h3>{t(locale, "preset.savedPresets")}</h3>
-                    </div>
+          <section className="main-panel">
+            {selectedMonitor ? (
+              <>
+                <div className="main-panel-header">
+                  <div>
+                    <h2>{selectedMonitorDisplayName}</h2>
+                    <p>
+                      {selectedMonitor.name} · {selectedMonitor.deviceName}
+                    </p>
+                  </div>
+                  <div className="monitor-badges">
+                    <span className="monitor-current-mode">
+                      {t(locale, "form.currentMode", {
+                        mode: formatMode(
+                          selectedMonitor.current.width,
+                          selectedMonitor.current.height,
+                          selectedMonitor.current.refreshRate,
+                        ),
+                      })}
+                    </span>
+                    {selectedMonitor.vibrance !== null ? (
+                      <span className="monitor-current-mode">
+                        {t(locale, "monitor.vibrance", {
+                          value: selectedMonitor.vibrance,
+                        })}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="alias-row">
+                  <label htmlFor="monitor-alias">
+                    {t(locale, "field.monitorAlias")}
+                  </label>
+                  <div className="alias-controls">
+                    <input
+                      id="monitor-alias"
+                      value={monitorAliasName}
+                      onChange={(event) =>
+                        setMonitorAliasName(event.currentTarget.value)
+                      }
+                      placeholder={selectedMonitorTitle}
+                      disabled={busy}
+                    />
                     <button
-                      className="primary-button"
+                      className="secondary-button"
                       type="button"
-                      onClick={beginCreatePreset}
+                      onClick={() => void saveMonitorAlias()}
                       disabled={busy}
                     >
-                      <Plus size={18} />
-                      <span>{t(locale, "action.newPreset")}</span>
+                      <Save size={17} />
+                      <span>{t(locale, "action.save")}</span>
                     </button>
                   </div>
+                </div>
 
-                  <div className="preset-list">
-                    {selectedPresets.length > 0 ? (
-                      selectedPresets.map((preset) =>
-                        renderPresetItem(preset, true),
-                      )
-                    ) : (
-                      <div className="empty-state">
-                        {t(locale, "preset.noMonitorPresets")}
+                {rightPanelMode === "list" ? (
+                  <section className="preset-list-section">
+                    <div className="panel-section-heading">
+                      <div>
+                        <h3>{t(locale, "preset.savedPresets")}</h3>
                       </div>
-                    )}
-                  </div>
+                      <button
+                        className="primary-button"
+                        type="button"
+                        onClick={beginCreatePreset}
+                        disabled={busy}
+                      >
+                        <Plus size={18} />
+                        <span>{t(locale, "action.newPreset")}</span>
+                      </button>
+                    </div>
 
-                  {unavailablePresets.length > 0 ? (
-                    <div className="unavailable-presets">
-                      <div className="panel-section-heading compact-heading">
-                        <div>
-                          <h3>{t(locale, "preset.unavailableGroup")}</h3>
-                          <span className="heading-meta">
-                            {t(locale, "preset.monitorUnavailable")}
-                          </span>
+                    <div className="preset-list">
+                      {selectedPresets.length > 0 ? (
+                        selectedPresets.map((preset) =>
+                          renderPresetItem(preset, true),
+                        )
+                      ) : (
+                        <div className="empty-state">
+                          {t(locale, "preset.noMonitorPresets")}
+                        </div>
+                      )}
+                    </div>
+
+                    {unavailablePresets.length > 0 ? (
+                      <div className="unavailable-presets">
+                        <div className="panel-section-heading compact-heading">
+                          <div>
+                            <h3>{t(locale, "preset.unavailableGroup")}</h3>
+                            <span className="heading-meta">
+                              {t(locale, "preset.monitorUnavailable")}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="preset-list">
+                          {unavailablePresets.map((preset) =>
+                            renderPresetItem(preset, false),
+                          )}
                         </div>
                       </div>
-                      <div className="preset-list">
-                        {unavailablePresets.map((preset) =>
-                          renderPresetItem(preset, false),
-                        )}
-                      </div>
-                    </div>
-                  ) : null}
-                </section>
-              ) : (
-                renderPresetEditor()
-              )}
-            </>
-          ) : (
-            <div className="empty-state">{t(locale, "empty.noMonitors")}</div>
-          )}
-        </section>
-      </div>
+                    ) : null}
+                  </section>
+                ) : (
+                  renderPresetEditor()
+                )}
+              </>
+            ) : (
+              <div className="empty-state">{t(locale, "empty.noMonitors")}</div>
+            )}
+          </section>
+        </div>
+      )}
     </main>
   );
 }
@@ -1376,6 +1531,8 @@ function createFormForMonitor(
     manualWidth: monitor.current.width,
     manualHeight: monitor.current.height,
     manualRefreshRate: monitor.current.refreshRate,
+    vibranceEnabled: false,
+    vibrance: monitor.vibrance ?? MIN_VIBRANCE,
     isDefault,
   };
 }
@@ -1438,6 +1595,51 @@ function languageLabel(locale: Locale, language: Locale): string {
   return t(locale, language === "pl" ? "language.pl" : "language.en");
 }
 
+const THEME_ICONS: Record<ThemeMode, typeof Sun> = {
+  auto: SunMoon,
+  light: Sun,
+  dark: Moon,
+};
+
+function ThemeSwitch({
+  locale,
+  value,
+  onChange,
+  disabled,
+  showLabels = false,
+}: {
+  locale: Locale;
+  value: ThemeMode;
+  onChange: (theme: ThemeMode) => void;
+  disabled: boolean;
+  showLabels?: boolean;
+}): React.JSX.Element {
+  return (
+    <fieldset className={`theme-switch${showLabels ? " labeled" : ""}`}>
+      <legend>{t(locale, "field.themeMode")}</legend>
+      {THEME_MODES.map((theme) => {
+        const Icon = THEME_ICONS[theme];
+        const label = themeModeLabel(locale, theme);
+        return (
+          <button
+            key={theme}
+            className={theme === value ? "active" : ""}
+            type="button"
+            aria-pressed={theme === value}
+            aria-label={label}
+            title={label}
+            onClick={() => onChange(theme)}
+            disabled={disabled}
+          >
+            <Icon size={15} />
+            {showLabels ? <span>{label}</span> : null}
+          </button>
+        );
+      })}
+    </fieldset>
+  );
+}
+
 function themeModeLabel(locale: Locale, themeMode: ThemeMode): string {
   switch (themeMode) {
     case "light":
@@ -1470,6 +1672,7 @@ function createPreviewPreset(
     height: input.height,
     refreshRate: input.refreshRate,
     processNames: input.processNames ?? [],
+    vibrance: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -1567,6 +1770,22 @@ function findMonitorForPreset(
 
 function isLegacyDisplayDeviceName(value: string): boolean {
   return /^\\\\\.\\DISPLAY\d+$/i.test(value);
+}
+
+async function copyText(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // Fallback for when the async clipboard API is unavailable or denied.
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.append(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
 }
 
 function toMessage(error: unknown, locale: Locale): string {

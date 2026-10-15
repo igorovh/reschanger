@@ -3,6 +3,8 @@ import type { Locale, ThemeMode } from "./i18n";
 export const DEFAULT_PROCESS_WATCH_INTERVAL_MS = 1000;
 export const MIN_PROCESS_WATCH_INTERVAL_MS = 250;
 export const MAX_PROCESS_WATCH_INTERVAL_MS = 60000;
+export const MIN_VIBRANCE = 50;
+export const MAX_VIBRANCE = 100;
 
 export type DisplayMode = {
   width: number;
@@ -16,6 +18,7 @@ export type MonitorInfo = {
   deviceName: string;
   current: DisplayMode;
   modes: DisplayMode[];
+  vibrance: number | null;
 };
 
 export type MonitorBinding = {
@@ -40,6 +43,7 @@ export type Preset = {
   height: number;
   refreshRate: number;
   processNames: string[];
+  vibrance: number | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -87,6 +91,7 @@ export type CreatePresetInput = {
   height: number;
   refreshRate: number;
   processNames?: string[];
+  vibrance?: number | null;
   isDefault?: boolean;
 };
 

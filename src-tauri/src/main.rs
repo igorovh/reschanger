@@ -8,6 +8,7 @@ mod settings;
 mod system;
 mod tray;
 mod updates;
+mod vibrance;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
@@ -95,14 +96,13 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .expect("failed to build reschanger")
-        .run(|_app, event| {
+        .run(|app, event| match event {
             // Closing the window destroys the webview; the tray keeps the process alive.
-            if let RunEvent::ExitRequested {
+            RunEvent::ExitRequested {
                 api, code: None, ..
-            } = event
-            {
-                api.prevent_exit();
-            }
+            } => api.prevent_exit(),
+            RunEvent::Exit => app.state::<AppCore>().lock().restore_all_vibrance(),
+            _ => {}
         });
 }
 

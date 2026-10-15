@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::SystemTime;
 
@@ -10,6 +10,7 @@ use crate::settings::{
     self, AppSettings, DefaultPreset, MAX_PROCESS_WATCH_INTERVAL_MS, MIN_PROCESS_WATCH_INTERVAL_MS,
     MonitorAlias, MonitorBinding, Preset,
 };
+use crate::vibrance;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -50,6 +51,7 @@ pub struct PresetInput {
     pub height: Option<i64>,
     pub refresh_rate: Option<i64>,
     pub process_names: Option<Vec<String>>,
+    pub vibrance: Option<i64>,
     pub is_default: Option<bool>,
 }
 
@@ -66,6 +68,8 @@ pub struct Core {
     settings_path: PathBuf,
     /// Insertion-ordered: the most recently started process wins when presets share a monitor.
     active_process_presets: Vec<String>,
+    /// Vibrance level each monitor had before a preset changed it, keyed by device name.
+    vibrance_baselines: HashMap<String, vibrance::Snapshot>,
 }
 
 impl Core {
@@ -77,6 +81,7 @@ impl Core {
             app_version,
             settings_path,
             active_process_presets: Vec::new(),
+            vibrance_baselines: HashMap::new(),
         }
     }
 
@@ -99,6 +104,9 @@ impl Core {
 
     pub fn refresh_monitors(&mut self) -> Result<(), AppError> {
         self.monitors = display::list_monitors();
+        for monitor in &mut self.monitors {
+            monitor.vibrance = vibrance::read(&monitor.device_name).map(|reading| reading.percent);
+        }
         self.remember_monitor_bindings();
         self.migrate_legacy_preset_monitor_ids();
         self.save().map_err(|message| AppError {
@@ -138,6 +146,7 @@ impl Core {
             process_names: input
                 .process_names
                 .or_else(|| Some(previous.process_names.clone())),
+            vibrance: input.vibrance,
             is_default: None,
         };
         let updated = self.build_preset(&merged, Some(&previous))?;
@@ -296,6 +305,7 @@ impl Core {
             };
             display::apply_mode(&monitor.device_name, mode)
                 .map_err(|error| apply_error_message(locale, error, &monitor.device_name, mode))?;
+            self.apply_vibrance(preset, monitor)?;
         }
 
         let refresh_error = self.refresh_monitors().err();
@@ -322,6 +332,45 @@ impl Core {
             results,
             refresh_error,
         })
+    }
+
+    fn apply_vibrance(&mut self, preset: &Preset, monitor: &MonitorInfo) -> Result<(), String> {
+        let device = &monitor.device_name;
+        let result = match preset.vibrance {
+            Some(percent) => {
+                if !self.vibrance_baselines.contains_key(device)
+                    && let Some(reading) = vibrance::read(device)
+                {
+                    self.vibrance_baselines
+                        .insert(device.clone(), reading.snapshot);
+                }
+                vibrance::set_percent(device, percent)
+            }
+            None => match self.vibrance_baselines.remove(device) {
+                Some(snapshot) => vibrance::restore(device, snapshot),
+                None => Ok(()),
+            },
+        };
+
+        result.map_err(|error| match error {
+            vibrance::SetError::Unsupported => tr(
+                self.locale(),
+                "display.vibranceUnsupported",
+                &[("monitorName", &self.monitor_display_name(monitor))],
+            ),
+            vibrance::SetError::Failed(vendor, code) => tr(
+                self.locale(),
+                "display.vibranceFailed",
+                &[("vendor", &format!("{vendor:?}")), ("code", &code)],
+            ),
+        })
+    }
+
+    /// Puts back every vibrance level changed by presets; used when the app quits.
+    pub fn restore_all_vibrance(&mut self) {
+        for (device, snapshot) in self.vibrance_baselines.drain() {
+            let _ = vibrance::restore(&device, snapshot);
+        }
     }
 
     /// Updates the set of running process presets and returns presets to apply.
@@ -494,6 +543,17 @@ impl Core {
             .ok_or_else(|| t(locale, "error.heightInvalid"))?;
         let refresh_rate = validate_range(input.refresh_rate, 30, 1000)
             .ok_or_else(|| t(locale, "error.refreshRateInvalid"))?;
+        let vibrance = match input.vibrance {
+            None => None,
+            Some(value) => Some(
+                validate_range(
+                    Some(value),
+                    vibrance::MIN_PERCENT.into(),
+                    vibrance::MAX_PERCENT.into(),
+                )
+                .ok_or_else(|| t(locale, "error.vibranceInvalid"))?,
+            ),
+        };
 
         let timestamp = now();
         Ok(Preset {
@@ -507,6 +567,7 @@ impl Core {
             process_names: settings::normalize_process_names(
                 input.process_names.iter().flatten().map(String::as_str),
             ),
+            vibrance,
             created_at: previous.map_or_else(|| timestamp.clone(), |p| p.created_at.clone()),
             updated_at: timestamp,
         })
@@ -667,6 +728,7 @@ mod tests {
             device_name: device.into(),
             current: mode,
             modes: vec![mode],
+            vibrance: None,
         }
     }
 
@@ -680,6 +742,7 @@ mod tests {
             height: 960,
             refresh_rate: 60,
             process_names: processes.iter().map(|name| name.to_string()).collect(),
+            vibrance: None,
             created_at: String::new(),
             updated_at: String::new(),
         }
@@ -693,6 +756,7 @@ mod tests {
             app_version: String::new(),
             settings_path: PathBuf::new(),
             active_process_presets: Vec::new(),
+            vibrance_baselines: HashMap::new(),
         };
         core.settings.presets = vec![
             preset("default", "m1", &[]),

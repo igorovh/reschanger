@@ -25,6 +25,8 @@ pub struct MonitorInfo {
     pub device_name: String,
     pub current: DisplayMode,
     pub modes: Vec<DisplayMode>,
+    /// Digital vibrance percent (50-100), filled in by the core; None when the GPU does not support it.
+    pub vibrance: Option<u32>,
 }
 
 pub enum ApplyError {
@@ -57,6 +59,7 @@ pub fn list_monitors() -> Vec<MonitorInfo> {
             modes: list_modes(&device_name_wide),
             device_name,
             current,
+            vibrance: None,
         });
     }
 

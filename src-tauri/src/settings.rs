@@ -42,6 +42,8 @@ pub struct Preset {
     pub refresh_rate: u32,
     #[serde(default)]
     pub process_names: Vec<String>,
+    #[serde(default)]
+    pub vibrance: Option<u32>,
     pub created_at: String,
     pub updated_at: String,
 }
