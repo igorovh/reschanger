@@ -1,80 +1,67 @@
 # reschanger
 
-Desktopowa aplikacja Electron dla Windows do szybkiej zmiany rozdzielczości i odświeżania monitora z poziomu zasobnika systemowego.
+A lightweight Windows tray app for quickly switching monitor resolution and refresh rate. Built with Tauri v2 (Rust + WebView2), with automatic updates.
 
-## Wymagania
+## Requirements
 
-- Windows
-- Bun
-- Node.js kompatybilny z Electron
+- Windows 10/11 (WebView2 ships with the OS; the installer adds it if missing)
+- [Bun](https://bun.sh)
+- [Rust](https://rustup.rs) (`stable-x86_64-pc-windows-msvc` toolchain)
 
-W PowerShell z zablokowanymi skryptami używaj `bun.cmd` zamiast `bun`.
+In PowerShell with script execution blocked, use `bun.cmd` instead of `bun`.
 
-## Instalacja zależności
-
-```powershell
-bun.cmd install
-```
-
-Pakiety użyte do zbudowania projektu:
+## Development
 
 ```powershell
-bun.cmd add react react-dom lucide-react
-bun.cmd add -d electron electron-vite electron-builder typescript @types/react @types/react-dom @types/node
+bun install
+bun run dev
 ```
 
-## Uruchamianie
+## Checks
 
 ```powershell
-bun.cmd run dev
+bun run check
+bun run typecheck
+cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-## Sprawdzenie i build
+## Local build
+
+The build produces signed updater artifacts, so it needs the private key:
 
 ```powershell
-bun.cmd run typecheck
-bun.cmd run build
+$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content -Raw ~\.tauri\reschanger.key
+$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
+bun run build
 ```
 
-## Pakowanie instalatora Windows
+The installer is written to `src-tauri\target\release\bundle\nsis\`.
 
-```powershell
-bun.cmd run dist
-```
+## Releases and auto-update
 
-Artefakt NSIS pojawi się w:
+1. Bump `version` in `package.json` (Tauri reads the version from there).
+2. Commit and tag: `git tag v0.2.1 && git push --tags`.
+3. The `.github/workflows/release.yml` workflow builds the NSIS installer, signs it and publishes a release with `latest.json`.
 
-```text
-release\reschanger Setup 0.1.0.exe
-```
+The app checks `https://github.com/igorovh/reschanger/releases/latest/download/latest.json` 15 s after startup and then every 6 hours. You can also check manually from the tray menu or the settings dialog. Updates install in `passive` mode: a progress bar, no UAC prompt, since the app installs per user.
 
-Lokalny build jest unsigned i celowo ustawia `CSC_IDENTITY_AUTO_DISCOVERY=false`, żeby `electron-builder` nie próbował używać certyfikatów z systemu.
+Repository secrets required by CI:
 
-## Pakowanie wersji portable
+- `TAURI_SIGNING_PRIVATE_KEY`: contents of `~\.tauri\reschanger.key`
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: the key password (empty)
 
-```powershell
-bun.cmd run dist:portable
-```
+If the private key is lost, installed copies will not accept further updates.
 
-Artefakt portable pojawi się w:
+## Project structure
 
-```text
-release\reschanger 0.1.0.exe
-```
+- `src/renderer`: UI (React + Vite)
+- `src/shared`: types and translations (`translations.json` is shared with Rust)
+- `src-tauri/src`: backend. Monitor WinAPI calls (`display.rs`), process detection and system helpers (`system.rs`), preset logic (`core.rs`), tray, updater
 
-## Dane lokalne
+## Local data
 
-Ustawienia i presety są zapisywane w pliku:
+Settings and presets (same format as the Electron version):
 
 ```text
 %APPDATA%\reschanger\settings.json
 ```
-
-## Funkcje
-
-- automatyczne wykrywanie monitorów
-- tworzenie, edycja i usuwanie presetów
-- aplikowanie presetu z głównego okna lub menu tray
-- menu kontekstowe w zasobniku systemowym
-- autostart z Windows
-- zmiana trybu ekranu przez PowerShell i WinAPI `ChangeDisplaySettingsEx`

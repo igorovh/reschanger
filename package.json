@@ -1,16 +1,16 @@
 {
   "name": "reschanger",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Windows tray utility for quickly changing monitor resolution and refresh rate.",
-  "main": "out/main/index.cjs",
   "type": "module",
   "private": true,
   "author": "reschanger",
   "scripts": {
-    "dev": "node scripts/electron-vite.cjs dev",
-    "build": "electron-vite build",
-    "dist": "electron-vite build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win",
-    "dist:portable": "electron-vite build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win portable",
+    "dev": "tauri dev",
+    "dev:web": "vite",
+    "build:web": "vite build",
+    "build": "tauri build",
+    "tauri": "tauri",
     "typecheck": "tsc --noEmit",
     "format": "biome format --write .",
     "lint": "biome lint .",
@@ -18,39 +18,19 @@
     "prepare": "husky"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.12.4",
     "lucide-react": "^1.14.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.14",
+    "@tauri-apps/cli": "^2.12.3",
     "@types/bun": "latest",
-    "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "electron": "^41.5.0",
-    "electron-builder": "^26.8.1",
-    "electron-vite": "^5.0.0",
     "husky": "^9.1.7",
-    "typescript": "^6.0.3"
-  },
-  "build": {
-    "appId": "pl.reschanger.app",
-    "productName": "reschanger",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "out/**/*",
-      "package.json"
-    ],
-    "win": {
-      "target": "nsis",
-      "signAndEditExecutable": false
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    }
+    "typescript": "^6.0.3",
+    "vite": "^8.3.4"
   }
 }

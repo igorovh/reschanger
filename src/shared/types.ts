@@ -63,9 +63,21 @@ export type AppSettings = {
   presets: Preset[];
 };
 
+export type AvailableUpdate = {
+  version: string;
+  notes: string | null;
+};
+
 export type AppState = {
   settings: AppSettings;
   monitors: MonitorInfo[];
+  appVersion: string;
+  availableUpdate: AvailableUpdate | null;
+};
+
+export type UpdateCheckResult = {
+  state: AppState;
+  updateAvailable: boolean;
 };
 
 export type CreatePresetInput = {
