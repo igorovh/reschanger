@@ -1,6 +1,6 @@
 {
   "name": "reschanger",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Windows tray utility for quickly changing monitor resolution and refresh rate.",
   "type": "module",
   "private": true,
